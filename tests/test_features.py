@@ -1,13 +1,18 @@
 """
-Tests for data_cleaning.py and feature_engineering.py.
+Tests for data_pipeline.py.
 """
 
 import pytest
 import pandas as pd
 import numpy as np
+import sys
+import os
 
-from src.data_pipeline import clean_data, parse_floor, validate_data, load_config
-from src.data_pipeline import target_encode, build_features
+# Add the src directory to the Python path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from data_pipeline import clean_data, parse_floor, validate_data, load_config
+from data_pipeline import target_encode, build_features
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
