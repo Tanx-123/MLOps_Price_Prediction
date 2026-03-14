@@ -1,0 +1,14 @@
+{
+  "best_model_type": "ExtraTrees",
+  "train": {
+    "mae": 16.65,
+    "rmse": 421.58,
+    "r2": 1.0
+  },
+  "test": {
+    "mae": 14549.45,
+    "rmse": 42999.36,
+    "r2": 0.5497
+  },
+  "cv_results": {}
+}

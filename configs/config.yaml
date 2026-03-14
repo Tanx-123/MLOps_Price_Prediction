@@ -1,0 +1,47 @@
+data:
+  raw_path: "data/raw/raw_data.csv"
+  processed_path: "data/processed"
+  artifacts_path: "artifacts"
+
+s3:
+  bucket: "price-trend-tanx"
+  region: "us-east-1"
+  raw_key: "raw_data/raw_data.csv"
+  processed_key: "processed_data/cleaned_data.csv"
+  features_prefix: "processed_data/features"
+  artifacts_prefix: "artifacts"
+
+features:
+  numerical:
+    - BHK
+    - Size
+    - Bathroom
+    - floor_num
+    - total_floors
+  categorical:
+    - Area Type
+    - City
+    - Furnishing Status
+    - Tenant Preferred
+  high_cardinality:
+    - Area Locality
+  target: Rent
+
+model:
+  type: "ensemble"  # Will be updated to actual best model type
+  test_size: 0.2
+  random_state: 42
+  cv_folds: 5
+  optimization:
+    stage1_iterations: 100
+    stage2_refinement: true
+    scoring_metric: "neg_mean_squared_error"
+  r2_threshold: 0.75  # Increased from 0.6 for better quality
+  ensemble:
+    voting: true
+    stacking: true
+    top_models: 3
+
+server:
+  host: "0.0.0.0"
+  port: 8000
