@@ -56,7 +56,6 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate rent prediction model")
     parser.add_argument("--config", default="configs/config.yaml", help="Config file path")
     args = parser.parse_args()
-
     config = load_config(args.config)
     s3_config = config["s3"]
     data_config = config["data"]
@@ -65,10 +64,8 @@ def main():
     artifacts_dir = data_config["artifacts_path"]
     processed_dir = data_config["processed_path"]
     bucket = s3_config["bucket"]
-
     # Step 1: Ensure all essential artifacts are available
-    logger.info("Step 1: Loading production artifacts...")
-    
+    logger.info("Step 1: Loading production artifacts...")    
     # Load best model
     model_path = os.path.join(artifacts_dir, "best_model.joblib")
     if not ensure_local_file(model_path, bucket, f"{s3_config['artifacts_prefix']}/best_model.joblib"):

@@ -23,10 +23,8 @@ import json
 import logging
 import argparse
 
-import yaml
 import numpy as np
 import pandas as pd
-import joblib
 from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, VotingRegressor, StackingRegressor
 from sklearn.model_selection import cross_val_score, RandomizedSearchCV
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -37,7 +35,7 @@ from catboost import CatBoostRegressor
 
 from src.core_utils import (
     load_config, download_from_s3, upload_directory_to_s3,
-    preprocess_data, compute_metrics, ensure_directory, save_json, save_model
+    preprocess_data, save_json, save_model
 )
 
 logging.basicConfig(
@@ -67,41 +65,41 @@ def compare_models(X_train, y_train, cv_folds=5, scoring='neg_mean_squared_error
     models = get_models()
     
     logger.info(f"Comparing {len(models)} models using {cv_folds}-fold cross-validation...")
-    
+
     results = {}
-    
+
     for name, model in models.items():
         logger.info(f"Training {name}...")
         
         try:
             # Perform cross-validation
             cv_scores = cross_val_score(
-                model, X_train, y_train, 
-                cv=cv_folds, 
-                scoring=scoring, 
+                model, X_train, y_train,
+                cv=cv_folds,
+                scoring=scoring,
                 n_jobs=-1
             )
-            
+
             # Convert to positive RMSE if using neg_mean_squared_error
             if scoring == 'neg_mean_squared_error':
                 cv_scores = np.sqrt(-cv_scores)
                 scoring_name = 'RMSE'
             else:
                 scoring_name = scoring
-            
+
             results[name] = {
                 'mean_score': np.mean(cv_scores),
                 'std_score': np.std(cv_scores),
                 'cv_scores': cv_scores.tolist(),
                 'scoring': scoring_name
             }
-            
+
             logger.info(f"{name}: {scoring_name} = {np.mean(cv_scores):.4f} (+/- {np.std(cv_scores) * 2:.4f})")
-            
+
         except Exception as e:
             logger.error(f"Failed to train {name}: {e}")
             continue
-    
+
     return results
 
 
@@ -113,7 +111,7 @@ def get_top_models(results, top_n=3):
     logger.info(f"Top {top_n} models:")
     for i, (name, result) in enumerate(top_models.items(), 1):
         logger.info(f"{i}. {name}: {result['mean_score']:.4f} (+/- {result['std_score'] * 2:.4f})")
-    
+
     return top_models
 
 
@@ -205,18 +203,18 @@ def create_voting_ensemble(optimized_models):
     estimators = []
     for name, model in optimized_models.items():
         estimators.append((name.lower(), model))
-    
+
     # Limit to top 3 models if more are available
     if len(estimators) > 3:
         estimators = estimators[:3]
-    
+
     logger.info(f"Using models for voting ensemble: {[name for name, _ in estimators]}")
-    
+
     voting_ensemble = VotingRegressor(
         estimators=estimators,
         n_jobs=-1
     )
-    
+
     return voting_ensemble
 
 
@@ -228,11 +226,11 @@ def create_stacking_ensemble(optimized_models, cv_folds=5):
     estimators = []
     for name, model in optimized_models.items():
         estimators.append((name.lower(), model))
-    
+
     # Limit to top 3 models if more are available
     if len(estimators) > 3:
         estimators = estimators[:3]
-    
+
     # Use RandomForest as meta-learner
     meta_learner = RandomForestRegressor(
         n_estimators=100,
@@ -240,10 +238,10 @@ def create_stacking_ensemble(optimized_models, cv_folds=5):
         random_state=42,
         n_jobs=-1
     )
-    
+
     logger.info(f"Using models for stacking ensemble: {[name for name, _ in estimators]}")
     logger.info("Using RandomForest as meta-learner")
-    
+
     stacking_ensemble = StackingRegressor(
         estimators=estimators,
         final_estimator=meta_learner,
@@ -251,7 +249,7 @@ def create_stacking_ensemble(optimized_models, cv_folds=5):
         n_jobs=-1,
         verbose=0
     )
-    
+
     return stacking_ensemble
 
 
@@ -261,20 +259,20 @@ def evaluate_ensemble(ensemble, X_train, y_train, X_test, y_test, ensemble_name)
     
     # Cross-validation on training set
     cv_scores = cross_val_score(
-        ensemble, X_train, y_train, 
+        ensemble, X_train, y_train,
         cv=5, scoring='neg_mean_squared_error', n_jobs=-1
     )
     cv_rmse = np.sqrt(-cv_scores)
-    
+
     # Fit and predict on test set
     ensemble.fit(X_train, y_train)
     y_pred = ensemble.predict(X_test)
-    
+
     # Calculate metrics
     mae = mean_absolute_error(y_test, y_pred)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
     r2 = r2_score(y_test, y_pred)
-    
+
     results = {
         'ensemble_name': ensemble_name,
         'cv_rmse_mean': float(np.mean(cv_rmse)),
@@ -284,13 +282,13 @@ def evaluate_ensemble(ensemble, X_train, y_train, X_test, y_test, ensemble_name)
         'test_r2': float(r2),
         'cv_scores': cv_rmse.tolist()
     }
-    
+
     logger.info(f"{ensemble_name}:")
     logger.info(f"  CV RMSE: {np.mean(cv_rmse):.4f} (+/- {np.std(cv_rmse) * 2:.4f})")
     logger.info(f"  Test MAE: {mae:.4f}")
     logger.info(f"  Test RMSE: {rmse:.4f}")
     logger.info(f"  Test R²: {r2:.4f}")
-    
+
     return results
 
 
@@ -303,19 +301,19 @@ def select_best_model(ensemble_results, individual_results):
     # Add individual model results
     for name, result in individual_results.items():
         all_results[name] = result
-    
+
     # Add ensemble results
     for result in ensemble_results:
         all_results[result['ensemble_name']] = result
-    
+
     # Select best model based on test RMSE
     best_model_name = min(all_results.keys(), key=lambda k: all_results[k]['test_rmse'])
     best_model_result = all_results[best_model_name]
-    
+
     logger.info(f"Best model: {best_model_name}")
     logger.info(f"Best model test RMSE: {best_model_result['test_rmse']:.4f}")
     logger.info(f"Best model test R²: {best_model_result['test_r2']:.4f}")
-    
+
     return best_model_name, best_model_result, all_results
 
 
@@ -333,30 +331,30 @@ def train_best_model(X_train, X_test, y_train, y_test, top_models):
     # Evaluate on test set
     y_train_pred = model.predict(X_train)
     y_test_pred = model.predict(X_test)
-    
+
     train_metrics = {
         "mae": round(float(mean_absolute_error(y_train, y_train_pred)), 2),
         "rmse": round(float(np.sqrt(mean_squared_error(y_train, y_train_pred))), 2),
         "r2": round(float(r2_score(y_train, y_train_pred)), 4),
     }
-    
+
     test_metrics = {
         "mae": round(float(mean_absolute_error(y_test, y_test_pred)), 2),
         "rmse": round(float(np.sqrt(mean_squared_error(y_test, y_test_pred))), 2),
         "r2": round(float(r2_score(y_test, y_test_pred)), 4),
     }
-    
+
     metrics = {
         "best_model_type": best_model_name,
         "train": train_metrics,
         "test": test_metrics,
         "cv_results": {},
     }
-    
+
     logger.info(f"Best model: {best_model_name}")
     logger.info(f"Train metrics: {train_metrics}")
     logger.info(f"Test metrics: {test_metrics}")
-    
+
     return model, metrics
 
 
@@ -476,7 +474,7 @@ def main():
     preprocessor_path = os.path.join(artifacts_dir, "preprocessor.joblib")
     save_model(preprocessor, preprocessor_path)
     logger.info(f"Step 8: Saved preprocessor to {preprocessor_path}")
-    
+
     encoding_maps_path = os.path.join(artifacts_dir, "target_encoding_maps.joblib")
     save_model(target_encoding_maps, encoding_maps_path)
     logger.info(f"Step 8: Saved target encoding maps to {encoding_maps_path}")
@@ -502,18 +500,18 @@ def main():
     logger.info(f"Test RMSE: {metrics['test']['rmse']:.4f}")
     logger.info(f"Test MAE: {metrics['test']['mae']:.4f}")
     logger.info(f"Test R²: {metrics['test']['r2']:.4f}")
-    
+
     logger.info("\nAll Model Performance:")
     for name in sorted(cv_results.keys(), key=lambda k: cv_results[k]['mean_score']):
         result = cv_results[name]
         logger.info(f"{name:15}: CV RMSE = {result['mean_score']:.4f} (+/- {result['std_score'] * 2:.4f})")
-    
+
     logger.info(f"\nProduction artifacts saved to:")
     logger.info(f"  - Best model: {model_path}")
     logger.info(f"  - Preprocessor: {preprocessor_path}")
     logger.info(f"  - Target encoding: {encoding_maps_path}")
     logger.info(f"  - Metrics: {metrics_path}")
-    
+
     logger.info("\nTo start the prediction server:")
     logger.info("  uvicorn src.serve:app --host 0.0.0.0 --port 8000")
 

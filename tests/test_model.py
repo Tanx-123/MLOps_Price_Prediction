@@ -7,7 +7,7 @@ import json
 import pytest
 import numpy as np
 import joblib
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 

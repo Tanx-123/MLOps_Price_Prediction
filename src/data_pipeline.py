@@ -27,7 +27,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
 from src.core_utils import (
     load_config, download_from_s3, upload_to_s3, upload_directory_to_s3,
-    target_encode, target_encode_with_map, ensure_directory, save_model
+    target_encode, target_encode_with_map, save_model
 )
 
 logging.basicConfig(

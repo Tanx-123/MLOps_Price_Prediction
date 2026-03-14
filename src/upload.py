@@ -8,7 +8,6 @@ Usage:
 
 import argparse
 import logging
-import yaml
 from src.s3_utils import upload_to_s3
 from src.utils import load_config
 

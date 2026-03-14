@@ -23,8 +23,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional
-
 from src.core_utils import load_config, ensure_local_file
 
 logging.basicConfig(
