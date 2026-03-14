@@ -8,11 +8,11 @@ import numpy as np
 import sys
 import os
 
-# Add the src directory to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+# Add the project root directory to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from data_pipeline import clean_data, parse_floor, validate_data, load_config
-from data_pipeline import target_encode, build_features
+from src.data_pipeline import clean_data, parse_floor, validate_data, load_config
+from src.data_pipeline import target_encode, build_features
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────

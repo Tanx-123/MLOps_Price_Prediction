@@ -25,8 +25,7 @@ import pandas as pd
 import joblib
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from src.s3_utils import download_from_s3, upload_to_s3
-from src.utils import load_config, preprocess_for_evaluation
+from src.core_utils import download_from_s3, upload_to_s3, load_config
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -50,6 +49,21 @@ def compute_metrics(y_true, y_pred):
         "rmse": round(float(np.sqrt(mean_squared_error(y_true, y_pred))), 2),
         "r2": round(float(r2_score(y_true, y_pred)), 4),
     }
+
+def preprocess_for_evaluation(df, config, preprocessor, target_encoding_maps):
+    """Preprocess data for evaluation."""
+    target_col = config.get("features", {}).get("target", "Rent")
+    y = df[target_col].values
+    
+    # Target encoding for high cardinality features
+    for col, encoding_map in target_encoding_maps.items():
+        if col in df.columns:
+            global_mean = np.mean(list(encoding_map.values())) if encoding_map else 0
+            df[col] = df[col].map(encoding_map).fillna(global_mean)
+            
+    X = preprocessor.transform(df)
+    return X, y
+
 
 
 def main():

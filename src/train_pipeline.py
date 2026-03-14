@@ -33,7 +33,7 @@ import xgboost as xgb
 import lightgbm as lgb
 from catboost import CatBoostRegressor
 
-from core_utils import (
+from src.core_utils import (
     load_config, download_from_s3, upload_directory_to_s3,
     preprocess_data, save_json, save_model
 )
