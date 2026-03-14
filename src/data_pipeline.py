@@ -19,7 +19,6 @@ import os
 import logging
 import argparse
 
-import yaml
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -178,7 +177,7 @@ def build_features(df, config):
         logger.info(f"Target-encoding column: {col}")
         train_df[col], encoding_map = target_encode(train_df, col, target_col)
         target_encoding_maps[col] = encoding_map
-        
+
         # Apply the same encoding to test set (using training data's encoding)
         global_mean = train_df[target_col].mean()
         test_df[col] = target_encode_with_map(test_df, col, encoding_map, global_mean)
@@ -199,10 +198,10 @@ def build_features(df, config):
 
     X_train = preprocessor.fit_transform(train_df)
     X_test = preprocessor.transform(test_df)
-    
+
     y_train = train_df[target_col].values
     y_test = test_df[target_col].values
-    
+
     logger.info(f"Train feature matrix shape: {X_train.shape}")
     logger.info(f"Test feature matrix shape: {X_test.shape}")
 

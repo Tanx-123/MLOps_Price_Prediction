@@ -69,7 +69,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run data cleaning
-        run: python -m src.data_cleaning
+        run: python -m src.data_pipeline
 
       - name: Upload cleaned data artifact
         uses: actions/upload-artifact@v4
@@ -97,8 +97,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run feature engineering
-        run: python -m src.feature_engineering
+      - name: Run data pipeline
+        run: python -m src.data_pipeline
 
       - name: Upload feature artifacts
         uses: actions/upload-artifact@v4
@@ -127,7 +127,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Train model
-        run: python -m src.train
+        run: python -m src.train_pipeline
 
       - name: Upload model artifacts
         uses: actions/upload-artifact@v4
