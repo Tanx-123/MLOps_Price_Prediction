@@ -70,19 +70,17 @@ def upload_to_s3(local_path: str, bucket: str, key: str, region: Optional[str] =
         logger.error(f"File not found: {local_path}")
         return False
 
+    s3 = get_s3_client(region)
+    if s3 is None:
+        logger.error("Cannot upload to S3: AWS credentials not available")
+        return False
+
     try:
-        s3 = get_s3_client(region)
         logger.info(f"Uploading {local_path} → s3://{bucket}/{key}")
         s3.upload_file(local_path, bucket, key)
         logger.info("Upload successful!")
         return True
 
-    except NoCredentialsError:
-        logger.error("AWS credentials missing. Check .env file.")
-        return False
-    except PartialCredentialsError:
-        logger.error("Incomplete AWS credentials in .env file.")
-        return False
     except ClientError as e:
         code = e.response["Error"]["Code"]
         if code == "AccessDenied":
