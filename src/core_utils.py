@@ -25,10 +25,8 @@ logger = logging.getLogger(__name__)
 
 def get_s3_client(region: Optional[str] = None):
     """Create and return an S3 client using credentials from environment variables."""
-    # Load .env file first (for local development)
-    load_dotenv()
-    
     # Get credentials from environment variables (works in both local and CI/CD)
+    # Note: load_dotenv() is already called at module level
     aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
     aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
     region = region or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
