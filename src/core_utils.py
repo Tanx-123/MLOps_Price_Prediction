@@ -24,14 +24,44 @@ logger = logging.getLogger(__name__)
 
 
 def get_s3_client(region: Optional[str] = None):
-    """Create and return an S3 client using credentials from .env."""
-    region = region or os.getenv("REGION", "us-east-1")
+    """Create and return an S3 client using credentials from environment variables."""
+    # Load .env file first (for local development)
+    load_dotenv()
+    
+    # Get credentials from environment variables (works in both local and CI/CD)
+    aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+    region = region or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+    
+    if not aws_access_key or not aws_secret_key:
+        logger.error("AWS credentials not found in environment variables")
+        return None
+        
     return boto3.client(
         "s3",
         region_name=region,
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        aws_access_key_id=aws_access_key,
+        aws_secret_access_key=aws_secret_key,
     )
+
+
+def s3_object_exists(bucket: str, key: str, region: Optional[str] = None) -> bool:
+    """Check if an S3 object exists."""
+    s3 = get_s3_client(region)
+    if s3 is None:
+        return False
+    
+    try:
+        s3.head_object(Bucket=bucket, Key=key)
+        return True
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "404":
+            return False
+        logger.error(f"Error checking S3 object: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error checking S3 object: {e}")
+        return False
 
 
 def upload_to_s3(local_path: str, bucket: str, key: str, region: Optional[str] = None) -> bool:
@@ -68,27 +98,27 @@ def upload_to_s3(local_path: str, bucket: str, key: str, region: Optional[str] =
 
 
 def download_from_s3(bucket: str, key: str, local_path: str, region: Optional[str] = None) -> bool:
-    """Download a file from S3 to local path."""
+    """Download a file from S3 to local path with improved error handling."""
+    # Check if object exists first
+    if not s3_object_exists(bucket, key, region):
+        logger.error(f"S3 object not found: s3://{bucket}/{key}")
+        return False
+    
     try:
         s3 = get_s3_client(region)
+        if s3 is None:
+            return False
+            
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         logger.info(f"Downloading s3://{bucket}/{key} → {local_path}")
         s3.download_file(bucket, key, local_path)
         logger.info(f"Downloaded to {local_path}")
         return True
 
-    except NoCredentialsError:
-        logger.error("AWS credentials missing. Check .env file.")
-        return False
-    except PartialCredentialsError:
-        logger.error("Incomplete AWS credentials in .env file.")
-        return False
     except ClientError as e:
         code = e.response["Error"]["Code"]
         if code == "NoSuchBucket":
             logger.error(f"Bucket {bucket} not found")
-        elif code == "NoSuchKey":
-            logger.error(f"Object {key} not found in {bucket}")
         elif code == "AccessDenied":
             logger.error(f"Permission denied for s3://{bucket}/{key}")
         else:

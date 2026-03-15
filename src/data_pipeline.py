@@ -227,9 +227,13 @@ def main():
             key=s3_config["raw_key"],
             local_path=raw_path,
         )
+        
         if not success:
-            logger.error("Failed to fetch raw data from S3. Exiting.")
-            exit(1)
+            if os.path.exists(raw_path):
+                logger.info("S3 download failed but local data exists, continuing...")
+            else:
+                logger.error("Failed to fetch raw data from S3 and no local data found. Exiting.")
+                exit(1)
     else:
         logger.info("Step 1: Raw data already exists locally, skipping download")
 
