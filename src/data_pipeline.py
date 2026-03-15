@@ -1,7 +1,6 @@
 """
 Unified data pipeline for the ML project.
 Consolidated from fetch_data.py, data_cleaning.py, and feature_engineering.py.
-
 Pipeline:
     1. Download raw data from S3 (if needed)
     2. Clean data (drop nulls, parse Floor, drop unnecessary columns)
@@ -14,11 +13,9 @@ Pipeline:
 Usage:
     python -m src.data_pipeline
 """
-
 import os
 import logging
 import argparse
-
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -34,7 +31,6 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
 
 def parse_floor(floor_str):
     """Parse 'X out of Y' floor string into (floor_num, total_floors).
@@ -84,7 +80,6 @@ def parse_floor(floor_str):
 
 def clean_data(df):
     """Clean the raw rent dataset.
-
     Steps:
         1. Drop 'Point of Contact' and 'Posted On' columns
         2. Parse 'Floor' into 'floor_num' and 'total_floors'
@@ -93,7 +88,6 @@ def clean_data(df):
 
     Args:
         df: Raw DataFrame.
-
     Returns:
         Cleaned DataFrame.
     """
@@ -121,14 +115,11 @@ def clean_data(df):
 
     return df
 
-
 def validate_data(df, config):
     """Validate cleaned data has expected columns and no nulls.
-
     Args:
         df: Cleaned DataFrame.
         config: Config dictionary.
-
     Raises:
         ValueError: If validation fails.
     """
@@ -155,7 +146,6 @@ def validate_data(df, config):
             raise ValueError(f"Expected column '{col}' not found in cleaned data")
 
     logger.info(f"Data validation passed. Shape: {df.shape}, Columns: {list(df.columns)}")
-
 
 def build_features(df, config):
     """Build features with proper train/test split to prevent data leakage."""
@@ -207,13 +197,11 @@ def build_features(df, config):
 
     return X_train, X_test, y_train, y_test, preprocessor, target_encoding_maps
 
-
 def main():
     parser = argparse.ArgumentParser(description="Complete data pipeline from raw data to features")
     parser.add_argument("--config", default="configs/config.yaml", help="Config file path")
     parser.add_argument("--skip-download", action="store_true", help="Skip downloading raw data if local file exists")
     args = parser.parse_args()
-
     config = load_config(args.config)
     s3_config = config["s3"]
     data_config = config["data"]
@@ -252,7 +240,8 @@ def main():
     clean_path = os.path.join(processed_dir, "cleaned_data.csv")
     df_clean.to_csv(clean_path, index=False)
     logger.info(f"Step 4: Saved cleaned data to {clean_path}")
-    # Step 5: Build features
+     
+    # Step 5: Build features=b6
     logger.info("Step 5: Building features with proper train/test split...")
     X_train, X_test, y_train, y_test, preprocessor, target_encoding_maps = build_features(df_clean, config)
 
@@ -274,7 +263,6 @@ def main():
         s3_config["bucket"],
         s3_config["processed_key"],
     )
-    
     # Upload features
     success2 = upload_directory_to_s3(
         features_dir,

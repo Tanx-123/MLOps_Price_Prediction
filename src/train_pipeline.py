@@ -374,20 +374,24 @@ def main():
 
     logger.info("Starting complete training pipeline...")
 
-    # Step 1: Download cleaned data from S3
+    # Step 1: Use local cleaned data (fallback to S3 if available)
     processed_dir = data_config["processed_path"]
     os.makedirs(processed_dir, exist_ok=True)
     clean_path = os.path.join(processed_dir, "cleaned_data.csv")
 
-    logger.info("Step 1: Downloading cleaned data from S3...")
-    success = download_from_s3(
-        bucket=s3_config["bucket"],
-        key=s3_config["processed_key"],
-        local_path=clean_path,
-    )
-    if not success:
-        logger.error("Failed to fetch cleaned data from S3. Exiting.")
-        exit(1)
+    logger.info("Step 1: Using local cleaned data...")
+    if not os.path.exists(clean_path):
+        logger.info("Local data not found, attempting to download from S3...")
+        success = download_from_s3(
+            bucket=s3_config["bucket"],
+            key=s3_config["processed_key"],
+            local_path=clean_path,
+        )
+        if not success:
+            logger.error("Failed to fetch cleaned data from S3 and no local data found. Exiting.")
+            exit(1)
+    else:
+        logger.info(f"Found local cleaned data at {clean_path}")
 
     # Step 2: Load and preprocess data with proper data leakage prevention
     logger.info("Step 2: Preprocessing data with proper train/test split...")

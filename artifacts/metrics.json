@@ -1,14 +1,14 @@
 {
-  "best_model_type": "ExtraTrees",
+  "best_model_type": "RandomForest",
   "train": {
-    "mae": 16.65,
-    "rmse": 421.58,
-    "r2": 1.0
+    "mae": 3173.02,
+    "rmse": 23336.11,
+    "r2": 0.9175
   },
   "test": {
-    "mae": 14549.45,
-    "rmse": 42999.36,
-    "r2": 0.5497
+    "mae": 16027.02,
+    "rmse": 50289.0,
+    "r2": 0.3841
   },
   "cv_results": {}
 }

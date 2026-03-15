@@ -522,77 +522,86 @@
         checkHealth();
         setInterval(checkHealth, 30000);
 
-        // Form submission
-        document.getElementById('predictForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+            // Form submission
+            document.getElementById('predictForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
 
-            const btn = document.getElementById('btnPredict');
-            const btnText = document.getElementById('btnText');
-            const spinner = document.getElementById('spinner');
-            const resultCard = document.getElementById('resultCard');
+                const btn = document.getElementById('btnPredict');
+                const btnText = document.getElementById('btnText');
+                const spinner = document.getElementById('spinner');
+                const resultCard = document.getElementById('resultCard');
 
-            // Loading state
-            btn.disabled = true;
-            btnText.textContent = 'Predicting...';
-            spinner.style.display = 'block';
-            resultCard.classList.remove('show', 'error');
-
-            const payload = {
-                BHK: parseInt(document.getElementById('bhk').value),
-                Size: parseInt(document.getElementById('size').value),
-                Bathroom: parseInt(document.getElementById('bathroom').value),
-                floor_num: parseInt(document.getElementById('floorNum').value),
-                total_floors: parseInt(document.getElementById('totalFloors').value),
-                Area_Type: document.getElementById('areaType').value,
-                City: document.getElementById('city').value,
-                Furnishing_Status: document.getElementById('furnishing').value,
-                Tenant_Preferred: document.getElementById('tenant').value,
-                Area_Locality: document.getElementById('locality').value,
-            };
-
-            try {
-                const res = await fetch(`${API_BASE}/predict`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-
-                if (!res.ok) {
-                    const err = await res.json();
-                    throw new Error(err.detail || 'Prediction failed');
+                // Validation: Floor number cannot be greater than total floors
+                const floorNum = parseInt(document.getElementById('floorNum').value);
+                const totalFloors = parseInt(document.getElementById('totalFloors').value);
+                
+                if (floorNum > totalFloors) {
+                    alert('Error: Floor number cannot be greater than total floors!');
+                    return;
                 }
 
-                const data = await res.json();
-                const amount = data.predicted_rent;
+                // Loading state
+                btn.disabled = true;
+                btnText.textContent = 'Predicting...';
+                spinner.style.display = 'block';
+                resultCard.classList.remove('show', 'error');
 
-                // Format as Indian currency
-                const formatted = '₹' + amount.toLocaleString('en-IN', {
-                    maximumFractionDigits: 0,
-                });
+                const payload = {
+                    BHK: parseInt(document.getElementById('bhk').value),
+                    Size: parseInt(document.getElementById('size').value),
+                    Bathroom: parseInt(document.getElementById('bathroom').value),
+                    floor_num: floorNum,
+                    total_floors: totalFloors,
+                    Area_Type: document.getElementById('areaType').value,
+                    City: document.getElementById('city').value,
+                    Furnishing_Status: document.getElementById('furnishing').value,
+                    Tenant_Preferred: document.getElementById('tenant').value,
+                    Area_Locality: document.getElementById('locality').value,
+                };
 
-                document.getElementById('resultLabel').textContent = 'Estimated Monthly Rent';
-                document.getElementById('resultAmount').textContent = formatted;
-                document.getElementById('resultAmount').style.background = 'linear-gradient(135deg, #10b981, #34d399, #6ee7b7)';
-                document.getElementById('resultAmount').style.webkitBackgroundClip = 'text';
-                document.getElementById('resultAmount').style.webkitTextFillColor = 'transparent';
-                document.getElementById('resultCurrency').textContent = 'per month';
-                resultCard.classList.remove('error');
-                resultCard.classList.add('show');
+                try {
+                    const res = await fetch(`${API_BASE}/predict`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
 
-            } catch (err) {
-                document.getElementById('resultLabel').textContent = 'Error';
-                document.getElementById('resultAmount').textContent = err.message;
-                document.getElementById('resultAmount').style.background = 'none';
-                document.getElementById('resultAmount').style.webkitTextFillColor = '#ef4444';
-                document.getElementById('resultAmount').style.fontSize = '16px';
-                document.getElementById('resultCurrency').textContent = '';
-                resultCard.classList.add('show', 'error');
-            } finally {
-                btn.disabled = false;
-                btnText.textContent = 'Predict Rent';
-                spinner.style.display = 'none';
-            }
-        });
+                    if (!res.ok) {
+                        const err = await res.json();
+                        throw new Error(err.detail || 'Prediction failed');
+                    }
+
+                    const data = await res.json();
+                    const amount = data.predicted_rent;
+
+                    // Format as Indian currency
+                    const formatted = '₹' + amount.toLocaleString('en-IN', {
+                        maximumFractionDigits: 0,
+                    });
+
+                    document.getElementById('resultLabel').textContent = 'Estimated Monthly Rent';
+                    document.getElementById('resultAmount').textContent = formatted;
+                    document.getElementById('resultAmount').style.background = 'linear-gradient(135deg, #10b981, #34d399, #6ee7b7)';
+                    document.getElementById('resultAmount').style.webkitBackgroundClip = 'text';
+                    document.getElementById('resultAmount').style.webkitTextFillColor = 'transparent';
+                    document.getElementById('resultCurrency').textContent = 'per month';
+                    resultCard.classList.remove('error');
+                    resultCard.classList.add('show');
+
+                } catch (err) {
+                    document.getElementById('resultLabel').textContent = 'Error';
+                    document.getElementById('resultAmount').textContent = err.message;
+                    document.getElementById('resultAmount').style.background = 'none';
+                    document.getElementById('resultAmount').style.webkitTextFillColor = '#ef4444';
+                    document.getElementById('resultAmount').style.fontSize = '16px';
+                    document.getElementById('resultCurrency').textContent = '';
+                    resultCard.classList.add('show', 'error');
+                } finally {
+                    btn.disabled = false;
+                    btnText.textContent = 'Predict Rent';
+                    spinner.style.display = 'none';
+                }
+            });
     </script>
 </body>
 </html>

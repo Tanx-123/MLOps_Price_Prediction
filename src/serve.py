@@ -205,7 +205,7 @@ async def predict(input_data: RentInput):
             "City": [input_data.City],
             "Furnishing Status": [input_data.Furnishing_Status],
             "Tenant Preferred": [input_data.Tenant_Preferred],
-            "Area Locality": [input_data.Area_Locality],
+            "Area Locality": [input_data.Area_Locality.lower()],  # Normalize to lowercase
         }
         df = pd.DataFrame(data)
 

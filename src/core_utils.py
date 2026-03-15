@@ -2,7 +2,6 @@
 Core utilities for the ML pipeline.
 Consolidated from utils.py and s3_utils.py to eliminate redundancy.
 """
-
 import os
 import logging
 import json
@@ -17,16 +16,31 @@ from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-
 logger = logging.getLogger(__name__)
+
+def load_env():
+    """Load environment variables from .env file."""
+    # Try to load .env file from current directory and parent directories
+    import pathlib
+    current_dir = pathlib.Path.cwd()
+    
+    # Look for .env file in current directory and parent directories
+    for path in [current_dir, current_dir.parent, current_dir.parent.parent]:
+        env_path = path / ".env"
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path)
+            logger.info(f"Loaded environment variables from {env_path}")
+            break
+    else:
+        logger.warning("No .env file found, using system environment variables only")
 
 
 def get_s3_client(region: Optional[str] = None):
     """Create and return an S3 client using credentials from environment variables."""
-    # Get credentials from environment variables (works in both local and CI/CD)
-    # Note: load_dotenv() is already called at module level
+    # Load environment variables first
+    load_env()
+    
+    # Get credentials from environment variables
     aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
     aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
     region = region or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
@@ -41,7 +55,6 @@ def get_s3_client(region: Optional[str] = None):
         aws_access_key_id=aws_access_key,
         aws_secret_access_key=aws_secret_key,
     )
-
 
 def s3_object_exists(bucket: str, key: str, region: Optional[str] = None) -> bool:
     """Check if an S3 object exists."""
@@ -60,7 +73,6 @@ def s3_object_exists(bucket: str, key: str, region: Optional[str] = None) -> boo
     except Exception as e:
         logger.error(f"Unexpected error checking S3 object: {e}")
         return False
-
 
 def upload_to_s3(local_path: str, bucket: str, key: str, region: Optional[str] = None) -> bool:
     """Upload a local file to S3."""
@@ -91,7 +103,6 @@ def upload_to_s3(local_path: str, bucket: str, key: str, region: Optional[str] =
     except Exception as e:
         logger.error(f"Upload failed: {e}")
         return False
-
 
 def download_from_s3(bucket: str, key: str, local_path: str, region: Optional[str] = None) -> bool:
     """Download a file from S3 to local path with improved error handling."""
@@ -124,7 +135,6 @@ def download_from_s3(bucket: str, key: str, local_path: str, region: Optional[st
         logger.error(f"Download failed: {e}")
         return False
 
-
 def upload_directory_to_s3(local_dir: str, bucket: str, s3_prefix: str, region: Optional[str] = None) -> bool:
     """Upload all files in a local directory to S3 under a prefix."""
     success = True
@@ -137,17 +147,14 @@ def upload_directory_to_s3(local_dir: str, bucket: str, s3_prefix: str, region: 
                 success = False
     return success
 
-
 def load_config(path: str = "configs/config.yaml") -> Dict[str, Any]:
     """Load YAML configuration file."""
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
-
 def ensure_directory(path: str) -> None:
     """Ensure directory exists."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-
 
 def save_json(data: Dict[str, Any], path: str) -> None:
     """Save data to JSON file."""
@@ -155,20 +162,22 @@ def save_json(data: Dict[str, Any], path: str) -> None:
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
 
-
 def save_model(model: Any, path: str) -> None:
     """Save model to joblib file."""
     ensure_directory(path)
     joblib.dump(model, path)
 
-
 def load_model(path: str) -> Any:
     """Load model from joblib file."""
     return joblib.load(path)
 
-
 def target_encode(df: pd.DataFrame, column: str, target: str, smoothing: int = 10) -> Tuple[pd.Series, Dict]:
     """Apply target encoding to a high-cardinality categorical column."""
+    # Normalize column values to lowercase to handle case sensitivity
+    if column == "Area Locality":
+        df[column] = df[column].str.lower()
+        logger.info(f"Normalized {column} to lowercase for case-insensitive encoding")
+    
     global_mean = df[target].mean()
     agg = df.groupby(column)[target].agg(["mean", "count"])
     smooth_mean = (agg["count"] * agg["mean"] + smoothing * global_mean) / (
@@ -178,11 +187,14 @@ def target_encode(df: pd.DataFrame, column: str, target: str, smoothing: int = 1
     encoded = df[column].map(encoding_map).fillna(global_mean)
     return encoded, encoding_map
 
-
 def target_encode_with_map(df: pd.DataFrame, column: str, encoding_map: Dict, global_mean: float) -> pd.Series:
     """Apply target encoding using a pre-computed map."""
+    # Normalize column values to lowercase for case-insensitive mapping
+    if column == "Area Locality":
+        df[column] = df[column].str.lower()
+        logger.info(f"Normalized {column} to lowercase for case-insensitive mapping")
+    
     return df[column].map(encoding_map).fillna(global_mean)
-
 
 def preprocess_data(df: pd.DataFrame, config: Dict[str, Any]) -> Tuple:
     """Preprocess data with proper train/test split to prevent data leakage."""
@@ -198,7 +210,6 @@ def preprocess_data(df: pd.DataFrame, config: Dict[str, Any]) -> Tuple:
     )
     
     logger.info(f"Train set: {train_df.shape}, Test set: {test_df.shape}")
-
     target_encoding_maps = {}
     for col in features.get("high_cardinality", []):
         logger.info(f"Target-encoding column: {col}")
@@ -214,7 +225,6 @@ def preprocess_data(df: pd.DataFrame, config: Dict[str, Any]) -> Tuple:
 
     logger.info(f"Numerical features ({len(numerical_cols)}): {numerical_cols}")
     logger.info(f"Categorical features ({len(categorical_cols)}): {categorical_cols}")
-
     preprocessor = ColumnTransformer(
         transformers=[
             ("num", StandardScaler(), numerical_cols),
@@ -234,7 +244,6 @@ def preprocess_data(df: pd.DataFrame, config: Dict[str, Any]) -> Tuple:
 
     return X_train, X_test, y_train, y_test, preprocessor, target_encoding_maps
 
-
 def compute_metrics(y_true: Any, y_pred: Any) -> Dict[str, float]:
     """Compute regression metrics."""
     from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -245,7 +254,6 @@ def compute_metrics(y_true: Any, y_pred: Any) -> Dict[str, float]:
         "r2": round(float(r2_score(y_true, y_pred)), 4),
     }
 
-
 def ensure_local_file(local_path: str, bucket: str, s3_key: str) -> bool:
     """Ensure a file exists locally; download from S3 if missing."""
     if os.path.exists(local_path):
@@ -253,3 +261,4 @@ def ensure_local_file(local_path: str, bucket: str, s3_key: str) -> bool:
         return True
     logger.info(f"Not found locally, downloading from S3: {s3_key}")
     return download_from_s3(bucket, s3_key, local_path)
+    
