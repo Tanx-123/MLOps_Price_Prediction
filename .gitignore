@@ -210,3 +210,6 @@ __marimo__/
 /catboost_info/
 /data/
 /pytest_output.txt
+
+/artifacts/
+/logs/
