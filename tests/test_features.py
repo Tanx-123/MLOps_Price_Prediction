@@ -147,7 +147,7 @@ class TestTargetEncode:
     def test_returns_encoding_map(self, sample_cleaned_df):
         _, encoding_map = target_encode(sample_cleaned_df, "Area Locality", "Rent")
         assert isinstance(encoding_map, dict)
-        assert "Whitefield" in encoding_map
+        assert "whitefield" in encoding_map  # Case is normalized to lowercase
 
     def test_encoded_length_matches(self, sample_cleaned_df):
         encoded, _ = target_encode(sample_cleaned_df, "Area Locality", "Rent")
