@@ -26,12 +26,13 @@ def artifacts_dir(tmp_path):
     import pandas as pd
 
     # Create and save a preprocessor
-    numerical_cols = ["BHK", "Size", "Bathroom", "floor_num", "total_floors", "Area Locality"]
+    numerical_cols = ["BHK", "Size", "Bathroom", "floor_num", "total_floors"]
     categorical_cols = ["Area Type", "City", "Furnishing Status", "Tenant Preferred"]
+    high_cardinality_cols = ["Area Locality"]
 
     preprocessor = ColumnTransformer(
         transformers=[
-            ("num", StandardScaler(), numerical_cols),
+            ("num", StandardScaler(), numerical_cols + high_cardinality_cols),
             ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
         ],
         remainder="drop",
@@ -44,12 +45,18 @@ def artifacts_dir(tmp_path):
         "Bathroom": [2, 3, 2, 3],
         "floor_num": [1, 0, 2, 1],
         "total_floors": [3, 5, 4, 3],
-        "Area Locality": [12500.0, 25000.0, 15000.0, 20000.0],
+        "Area Locality": ["Whitefield", "Koramangala", "Whitefield", "Indiranagar"],
         "Area Type": ["Super Area", "Carpet Area", "Super Area", "Carpet Area"],
         "City": ["Bangalore", "Chennai", "Bangalore", "Chennai"],
         "Furnishing Status": ["Furnished", "Semi-Furnished", "Unfurnished", "Furnished"],
         "Tenant Preferred": ["Family", "Bachelors", "Bachelors/Family", "Family"],
+        "Rent": [10000, 25000, 15000, 20000],
     })
+    
+    # Apply target encoding for high cardinality features
+    from src.core_utils import target_encode
+    sample_df["Area Locality"], encoding_map = target_encode(sample_df, "Area Locality", "Rent")
+    
     X_transformed = preprocessor.fit_transform(sample_df)
     joblib.dump(preprocessor, tmp_path / "preprocessor.joblib")
 
@@ -60,10 +67,7 @@ def artifacts_dir(tmp_path):
     joblib.dump(model, tmp_path / "best_model.joblib")
 
     # Save target encoding maps
-    encoding_maps = {
-        "Area Locality": {"Whitefield": 12500.0, "Koramangala": 25000.0}
-    }
-    joblib.dump(encoding_maps, tmp_path / "target_encoding_maps.joblib")
+    joblib.dump({"Area Locality": encoding_map}, tmp_path / "target_encoding_maps.joblib")
 
     # Save metrics
     metrics = {

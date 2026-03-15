@@ -3,8 +3,19 @@ name: ML Pipeline
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "requirements.txt"
   pull_request:
     branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "requirements.txt"
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 0"   # every Sunday midnight UTC
 
 env:
   PYTHON_VERSION: "3.13"
@@ -21,6 +32,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -28,16 +40,20 @@ jobs:
       - name: Run tests
         run: pytest tests/ -v --tb=short
 
-  # ── Stage 3: Data Cleaning ──────────────────────────────────────
-  data-cleaning:
-    name: Data Cleaning
+  # ── Stage 2: Data Processing ─────────────────────────────────────
+  data-processing:
+    name: Data Processing
     runs-on: ubuntu-latest
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: >
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'schedule')
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,35 +61,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run data cleaning
-        run: python -m src.data_pipeline
-
-      - name: Upload cleaned data artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: cleaned-data
-          path: data/processed/cleaned_data.csv
-
-  # ── Stage 4: Feature Engineering ────────────────────────────────
-  feature-engineering:
-    name: Feature Engineering
-    runs-on: ubuntu-latest
-    needs: data-cleaning
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-east-1
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -81,21 +69,24 @@ jobs:
       - name: Run data pipeline
         run: python -m src.data_pipeline
 
-      - name: Upload feature artifacts
+      - name: Upload processed data artifact
         uses: actions/upload-artifact@v4
         with:
-          name: features
-          path: data/processed/features/
+          name: processed-data
+          path: data/processed/
 
-  # ── Stage 5: Train ──────────────────────────────────────────────
+  # ── Stage 3: Train Model ─────────────────────────────────────────
   train:
     name: Train Model
     runs-on: ubuntu-latest
-    needs: feature-engineering
+    needs: data-processing
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule'
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
     steps:
       - uses: actions/checkout@v4
 
@@ -103,9 +94,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Download processed data
+        uses: actions/download-artifact@v4
+        with:
+          name: processed-data
+          path: data/processed/
 
       - name: Train model
         run: python -m src.train_pipeline
@@ -116,7 +114,7 @@ jobs:
           name: model-artifacts
           path: artifacts/
 
-  # ── Stage 6: Evaluate ───────────────────────────────────────────
+  # ── Stage 4: Evaluate Model ──────────────────────────────────────
   evaluate:
     name: Evaluate Model
     runs-on: ubuntu-latest
@@ -124,7 +122,7 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
     steps:
       - uses: actions/checkout@v4
 
@@ -132,9 +130,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Download model artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: model-artifacts
+          path: artifacts/
 
       - name: Evaluate model (quality gate)
         run: python -m src.evaluate
@@ -145,11 +150,15 @@ jobs:
           name: eval-metrics
           path: artifacts/eval_metrics.json
 
-  # ── Stage 7: Docker Build ───────────────────────────────────────
+  # ── Stage 5: Docker Build & Push ─────────────────────────────────
   docker-build:
-    name: Docker Build
+    name: Docker Build & Push
     runs-on: ubuntu-latest
     needs: evaluate
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
     steps:
       - uses: actions/checkout@v4
 
@@ -164,3 +173,15 @@ jobs:
 
       - name: Tag latest
         run: docker tag rent-predictor:${{ github.sha }} rent-predictor:latest
+
+      - name: Log in to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${{ secrets.AWS_DEFAULT_REGION }} | \
+          docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
+
+      - name: Push to ECR
+        run: |
+          docker tag rent-predictor:${{ github.sha }} ${{ secrets.ECR_REGISTRY }}/rent-predictor:${{ github.sha }}
+          docker tag rent-predictor:latest ${{ secrets.ECR_REGISTRY }}/rent-predictor:latest
+          docker push ${{ secrets.ECR_REGISTRY }}/rent-predictor:${{ github.sha }}
+          docker push ${{ secrets.ECR_REGISTRY }}/rent-predictor:latest

@@ -2,14 +2,13 @@
 Upload raw data CSV to S3 bucket.
 
 Usage:
-    python -m src.upload_raw
-    python -m src.upload_raw --file data/raw/raw_data.csv
+    python -m src.upload
+    python -m src.upload --file data/raw/raw_data.csv
 """
 
 import argparse
 import logging
-from src.s3_utils import upload_to_s3
-from src.utils import load_config
+from src.core_utils import upload_to_s3, load_config
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"

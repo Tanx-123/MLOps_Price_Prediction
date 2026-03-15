@@ -5,7 +5,7 @@ data:
 
 s3:
   bucket: "price-trend-tanx"
-  region: "us-east-1"
+  region: "ap-south-1"
   raw_key: "raw_data/raw_data.csv"
   processed_key: "processed_data/cleaned_data.csv"
   features_prefix: "processed_data/features"
