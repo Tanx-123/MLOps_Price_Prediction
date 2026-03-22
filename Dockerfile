@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY configs/ ./configs/
 COPY artifacts/ ./artifacts/
+COPY static/ ./static/
 
 # Expose port
 EXPOSE 8000

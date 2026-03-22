@@ -9,12 +9,11 @@ Endpoints:
 Usage:
     uvicorn src.serve:app --host 0.0.0.0 --port 8000
 """
-
 import os
 import json
 import logging
+from contextlib import asynccontextmanager
 
-import yaml
 import numpy as np
 import pandas as pd
 import joblib
@@ -23,33 +22,30 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
 from src.core_utils import load_config, ensure_local_file
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
-# ── Pydantic models ──────────────────────────────────────────────────
+# ── Request / Response schemas ───────────────────────────────────────
 
 class RentInput(BaseModel):
-    """Input features for rent prediction."""
-    BHK: int = Field(..., ge=1, le=10, description="Number of bedrooms")
-    Size: int = Field(..., gt=0, description="Size in sqft")
-    Bathroom: int = Field(..., ge=1, le=10, description="Number of bathrooms")
-    floor_num: int = Field(..., ge=-2, description="Floor number (-2=lower basement, -1=upper basement, 0=ground)")
-    total_floors: int = Field(..., ge=1, description="Total floors in building")
-    Area_Type: str = Field(..., description="Type of area (e.g., Super Area, Carpet Area, Built Area)")
-    City: str = Field(..., description="City name")
-    Furnishing_Status: str = Field(..., description="Furnishing status (Furnished, Semi-Furnished, Unfurnished)")
-    Tenant_Preferred: str = Field(..., description="Tenant preference (Bachelors, Bachelors/Family, Family)")
-    Area_Locality: str = Field(..., description="Area/Locality name")
+    BHK: int = Field(..., ge=1, le=10)
+    Size: int = Field(..., gt=0)
+    Bathroom: int = Field(..., ge=1, le=10)
+    floor_num: int = Field(..., ge=-2)
+    total_floors: int = Field(..., ge=1)
+    Area_Type: str
+    City: str
+    Furnishing_Status: str
+    Tenant_Preferred: str
+    Area_Locality: str
 
 
 class RentOutput(BaseModel):
-    """Output prediction response."""
-    predicted_rent: float = Field(..., description="Predicted monthly rent in INR")
+    predicted_rent: float
     currency: str = "INR"
 
 
@@ -64,45 +60,8 @@ class ModelInfoResponse(BaseModel):
     features_count: int
 
 
-# ── Load config and artifacts ────────────────────────────────────────
+# ── Global state (populated on startup) ──────────────────────────────
 
-
-def ensure_artifact(local_path, bucket, s3_key):
-    """Load artifact from local path, downloading from S3 if needed."""
-    if not os.path.exists(local_path):
-        logger.info(f"Artifact not found locally, downloading from S3: {s3_key}")
-        success = ensure_local_file(local_path, bucket, s3_key)
-        if not success:
-            raise RuntimeError(f"Failed to download artifact: {s3_key}")
-    return local_path
-
-
-# ── FastAPI app ──────────────────────────────────────────────────────
-
-app = FastAPI(
-    title="Rent Predictor API",
-    description="ML-powered API to predict house rent based on property features",
-    version="1.0.0",
-)
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Serve static frontend
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-
-@app.get("/", include_in_schema=False)
-async def root():
-    """Redirect root to the frontend."""
-    return RedirectResponse(url="/static/index.html")
-
-# Global state
 model = None
 preprocessor = None
 target_encoding_maps = None
@@ -110,122 +69,124 @@ metrics = None
 config = None
 
 
-@app.on_event("startup")
-async def startup():
-    """Load best model, preprocessor, and encoding maps on startup."""
+def _load_joblib(artifacts_dir, bucket, prefix, filename):
+    """Load a joblib file, downloading from S3 if it doesn't exist locally."""
+    path = os.path.join(artifacts_dir, filename)
+    if not os.path.exists(path):
+        if not ensure_local_file(path, bucket, f"{prefix}/{filename}"):
+            raise RuntimeError(f"Failed to load artifact: {filename}")
+    return joblib.load(path)
+
+
+def _load_json(artifacts_dir, *filenames):
+    """Try loading the first JSON file that exists from the list."""
+    for name in filenames:
+        path = os.path.join(artifacts_dir, name)
+        if os.path.exists(path):
+            with open(path) as f:
+                return json.load(f)
+    return None
+
+
+async def _startup():
     global model, preprocessor, target_encoding_maps, metrics, config
 
     config = load_config()
-    s3_config = config["s3"]
+    s3_cfg = config["s3"]
     artifacts_dir = config["data"]["artifacts_path"]
-    bucket = s3_config["bucket"]
-    prefix = s3_config["artifacts_prefix"]
+    bucket, prefix = s3_cfg["bucket"], s3_cfg["artifacts_prefix"]
 
-    try:
-        # Load best model (optimized ensemble or single model)
-        model_path = ensure_artifact(
-            os.path.join(artifacts_dir, "best_model.joblib"),
-            bucket, f"{prefix}/best_model.joblib",
-        )
-        model = joblib.load(model_path)
-        logger.info("Best model loaded successfully.")
+    model = _load_joblib(artifacts_dir, bucket, prefix, "best_model.joblib")
+    preprocessor = _load_joblib(artifacts_dir, bucket, prefix, "preprocessor.joblib")
+    target_encoding_maps = _load_joblib(artifacts_dir, bucket, prefix, "target_encoding_maps.joblib")
+    metrics = _load_json(artifacts_dir, "ensemble_results.json", "metrics.json")
 
-        # Load preprocessor
-        preprocessor_path = ensure_artifact(
-            os.path.join(artifacts_dir, "preprocessor.joblib"),
-            bucket, f"{prefix}/preprocessor.joblib",
-        )
-        preprocessor = joblib.load(preprocessor_path)
-        logger.info("Preprocessor loaded successfully.")
+    logger.info(f"Loaded model: {model.__class__.__name__}")
 
-        # Load target encoding maps
-        encoding_path = ensure_artifact(
-            os.path.join(artifacts_dir, "target_encoding_maps.joblib"),
-            bucket, f"{prefix}/target_encoding_maps.joblib",
-        )
-        target_encoding_maps = joblib.load(encoding_path)
-        logger.info("Target encoding maps loaded successfully.")
 
-        # Load model metrics and performance information
-        metrics_path = os.path.join(artifacts_dir, "ensemble_results.json")
-        if os.path.exists(metrics_path):
-            with open(metrics_path, "r") as f:
-                metrics = json.load(f)
-            logger.info("Model performance metrics loaded successfully.")
-        else:
-            # Fallback to individual model metrics
-            metrics_path = os.path.join(artifacts_dir, "metrics.json")
-            if os.path.exists(metrics_path):
-                with open(metrics_path, "r") as f:
-                    metrics = json.load(f)
-                logger.info("Model metrics loaded successfully.")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await _startup()
+    yield
 
-    except Exception as e:
-        logger.error(f"Failed to load artifacts: {e}")
-        raise
+
+# ── App setup ────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="Rent Predictor API",
+    description="ML-powered rent prediction",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+)
+
+if os.path.isdir("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# ── Endpoints ────────────────────────────────────────────────────────
+
+@app.get("/", include_in_schema=False)
+async def root():
+    if os.path.isdir("static"):
+        return RedirectResponse(url="/static/index.html")
+    return {"message": "Rent Predictor API — visit /docs"}
 
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
-    """Health check endpoint."""
     return HealthResponse(
-        status="healthy" if model is not None else "unhealthy",
+        status="healthy" if model else "unhealthy",
         model_loaded=model is not None,
     )
 
 
 @app.get("/model/info", response_model=ModelInfoResponse)
 async def model_info():
-    """Return model metadata and metrics."""
     if model is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-
+        raise HTTPException(503, "Model not loaded")
     return ModelInfoResponse(
         model_type=config["model"]["type"],
         metrics=metrics or {},
-        features_count=model.n_features_in_,
+        features_count=getattr(model, "n_features_in_", 0),
     )
 
 
 @app.post("/predict", response_model=RentOutput)
 async def predict(input_data: RentInput):
-    """Predict rent from input features."""
     if model is None or preprocessor is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
+        raise HTTPException(503, "Model not loaded")
 
     try:
-        # Build DataFrame with correct column names (matching training)
-        data = {
-            "BHK": [input_data.BHK],
-            "Size": [input_data.Size],
-            "Bathroom": [input_data.Bathroom],
-            "floor_num": [input_data.floor_num],
-            "total_floors": [input_data.total_floors],
-            "Area Type": [input_data.Area_Type],
-            "City": [input_data.City],
-            "Furnishing Status": [input_data.Furnishing_Status],
-            "Tenant Preferred": [input_data.Tenant_Preferred],
-            "Area Locality": [input_data.Area_Locality.lower()],  # Normalize to lowercase
-        }
-        df = pd.DataFrame(data)
+        # Build a single-row DataFrame matching the training column names
+        df = pd.DataFrame([{
+            "BHK": input_data.BHK,
+            "Size": input_data.Size,
+            "Bathroom": input_data.Bathroom,
+            "floor_num": input_data.floor_num,
+            "total_floors": input_data.total_floors,
+            "Area Type": input_data.Area_Type,
+            "City": input_data.City,
+            "Furnishing Status": input_data.Furnishing_Status,
+            "Tenant Preferred": input_data.Tenant_Preferred,
+            "Area Locality": input_data.Area_Locality.lower(),
+        }])
 
-        # Apply target encoding for high-cardinality features
+        # Apply target encoding (same logic as training)
         if target_encoding_maps:
-            for col, encoding_map in target_encoding_maps.items():
+            for col, enc_map in target_encoding_maps.items():
                 if col in df.columns:
-                    global_mean = np.mean(list(encoding_map.values()))
-                    df[col] = df[col].map(encoding_map).fillna(global_mean)
+                    fallback = np.mean(list(enc_map.values()))
+                    df[col] = df[col].map(enc_map).fillna(fallback)
 
-        # Transform using preprocessor
         X = preprocessor.transform(df)
-
-        # Predict
-        prediction = model.predict(X)[0]
-
-        return RentOutput(
-            predicted_rent=round(float(max(prediction, 0)), 2),
-        )
+        pred = float(model.predict(X)[0])
+        return RentOutput(predicted_rent=round(max(pred, 0), 2))
 
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
-        raise HTTPException(status_code=400, detail=f"Prediction error: {str(e)}")
+        raise HTTPException(400, f"Prediction error: {e}")

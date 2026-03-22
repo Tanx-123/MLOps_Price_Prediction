@@ -1,16 +1,17 @@
 # MLOps Price Prediction Pipeline
 
-A comprehensive machine learning pipeline for predicting rental prices using modern MLOps practices. This project demonstrates best practices for data processing, model training, evaluation, and deployment in a production environment.
+A comprehensive machine learning pipeline for predicting rental prices using modern MLOps practices. This project demonstrates best practices for data processing, model training, evaluation, validation, and deployment in a production environment.
 
 ## 🚀 Features
 
-- **Complete Data Pipeline**: Automated data fetching, cleaning, and feature engineering
-- **Model Comparison**: Compare 10 different ML models using cross-validation
-- **Hyperparameter Optimization**: Optional hyperparameter tuning for best performance
-- **Ensemble Methods**: Create ensemble models for improved predictions
-- **Cloud Integration**: S3 storage for data and model artifacts
-- **REST API**: FastAPI-based prediction service
-- **Professional Structure**: Clean, maintainable codebase following ML best practices
+- **Complete Data Pipeline**: Automated data fetching from S3, cleaning, and robust feature engineering with strict train/test splitting.
+- **Model Comparison**: Compare 5 state-of-the-art tree-based ML models using cross-validation.
+- **Hyperparameter Optimization**: Optional randomized search tuning for absolute best performance.
+- **Ensemble Methods**: Automated creation of Voting and Stacking ensemble models.
+- **Cloud Integration**: AWS S3 storage for tracking processed features and joblib model artifacts.
+- **Evaluation Gate**: Automated quality gate evaluating RMSE, MAE, and R² against thresholds prior to deployment.
+- **REST API**: FastAPI-based prediction service loading seamlessly from cloud artifacts.
+- **Professional Structure**: Clean, modular, production-ready codebase.
 
 ## 📦 Installation
 
@@ -31,9 +32,11 @@ source env/bin/activate  # On Windows: env\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. Configure AWS credentials (for S3 operations):
+4. Configure AWS and environment variables:
+Create a `.env` file from the example template and fill in your keys:
 ```bash
-aws configure
+cp .env.example .env
+# Edit .env with your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
 ```
 
 ## 🏗️ Project Structure
@@ -41,104 +44,92 @@ aws configure
 ```
 MLOps_Price_Prediction/
 ├── src/
-│   ├── core_utils.py          # Core utilities and S3 operations
-│   ├── data_pipeline.py       # Complete data processing pipeline
-│   ├── train_pipeline.py      # Model training and comparison
+│   ├── core_utils.py          # Shared utilities (S3, metrics, config)
+│   ├── data_pipeline.py       # Data processing & feature engineering
+│   ├── train_pipeline.py      # Model training, tuning, comparison
+│   ├── evaluate.py           # Model quality gate evaluation
 │   ├── serve.py              # FastAPI prediction service
-│   ├── evaluate.py           # Model evaluation utilities
-│   └── upload.py             # Simple upload utilities
+│   └── upload.py             # S3 upload utilities
 ├── data/
-│   ├── raw/                  # Raw data storage
-│   └── processed/            # Processed data and features
-├── artifacts/                # Trained models and metrics
-├── configs/                  # Configuration files
-└── tests/                    # Unit tests
+│   ├── raw/                  # Raw local data storage
+│   └── processed/            # Processed CSVs
+├── artifacts/                # Local cache for trained models/maps
+├── configs/                  # YAML pipelines configs
+└── tests/                    # Pytest unit tests
 ```
 
 ## 🎯 Quick Start
 
+Run the MLOps pipeline stages sequentially:
+
 ### 1. Data Processing Pipeline
 ```bash
-# Run complete data pipeline
+# Fetch, clean, encode, and build features
 python -m src.data_pipeline
-
-# Skip download if data already exists
-python -m src.data_pipeline --skip-download
 ```
 
 ### 2. Model Training Pipeline
 ```bash
-# Run complete training pipeline
+# Compare base models and save the best
 python -m src.train_pipeline
 
-# With hyperparameter optimization
+# Or run with robust randomized hyperparameter optimization
 python -m src.train_pipeline --optimize
-
-# With ensemble creation
-python -m src.train_pipeline --ensemble
-
-# With both optimization and ensemble
-python -m src.train_pipeline --optimize --ensemble
 ```
 
-### 3. Start Prediction API
+### 3. Model Evaluation Pipeline
 ```bash
-# Start the FastAPI server
-uvicorn src.serve:app --host 0.0.0.0 --port 8000
+# Evaluate the saved model against the strictly held-out test split
+python -m src.evaluate
+```
 
-# Or use the serve module
-python -m src.serve
+### 4. Start Prediction API
+```bash
+# Start the FastAPI server locally
+uvicorn src.serve:app --host 0.0.0.0 --port 8000
 ```
 
 ## 📊 Model Performance
 
-The pipeline compares 10 different models using 5-fold cross-validation:
+The pipeline evaluates and compares 5 top estimators across 5-fold cross-validation:
 
-1. **ExtraTrees**: Best performing model (RMSE ~44,562)
-2. **RandomForest**: Strong baseline (RMSE ~45,127)
-3. **Ridge**: Linear baseline (RMSE ~45,127)
-4. **Lasso**: Regularized linear (RMSE ~45,127)
-5. **ElasticNet**: Elastic net regression (RMSE ~45,127)
-6. **SVR**: Support Vector Regression (RMSE ~45,127)
-7. **MLP**: Neural network (RMSE ~45,127)
-8. **CatBoost**: Gradient boosting (RMSE ~45,801)
-9. **LightGBM**: Light gradient boosting (RMSE ~46,124)
-10. **XGBoost**: Extreme gradient boosting (RMSE ~65,575)
+1. **ExtraTreesRegressor** (Current best model)
+2. **RandomForestRegressor**
+3. **CatBoostRegressor**
+4. **LightGBM**
+5. **XGBoost**
 
-**Best Model Performance:**
-- Test RMSE: 42,999
-- Test MAE: 14,549
-- Test R²: 0.55
+**Typical Optimal Performance Characteristics (ExtraTrees):**
+- Test RMSE: ~46,243
+- Test MAE: ~14,678
+- Test R²: ~0.48 (Passes configurable pipeline thresholds)
 
 ## 🔧 Configuration
 
-Configuration is managed through `configs/config.yaml`:
+Pipeline behavior is controlled via `configs/config.yaml`. Example:
 
 ```yaml
 data:
-  raw_url: "https://raw.githubusercontent.com/amankharwal/Website-data/master/Instagram.csv"
   raw_path: "data/raw/raw_data.csv"
-  processed_path: "data/processed/cleaned_data.csv"
+  processed_path: "data/processed"
+  artifacts_path: "artifacts"
 
 s3:
   bucket: "price-trend-tanx"
   region: "ap-south-1"
 
-models:
-  hyperparameter_optimization: true
-  ensemble_creation: true
-  cv_folds: 5
+model:
+  type: "ensemble"
   test_size: 0.2
-  random_state: 42
-
-api:
-  host: "0.0.0.0"
-  port: 8000
+  cv_folds: 5
+  r2_threshold: 0.30
+  ensemble:
+    top_models: 3
 ```
 
 ## 🌐 API Endpoints
 
-Once the server is running, you can make predictions:
+Once the `uvicorn` server is running on `localhost:8000`, test the endpoints:
 
 ### Health Check
 ```bash
@@ -152,59 +143,24 @@ Content-Type: application/json
 
 {
   "BHK": 2,
-  "Size": 1200,
-  "Area Type": "Super built-up  Area",
-  "City": "Mumbai",
-  "Furnishing Status": "Semi-Furnished",
-  "Tenant Preferred": "Bachelors/Family",
+  "Size": 800,
+  "Area_Type": "Super Area",
+  "City": "Bangalore",
+  "Furnishing_Status": "Furnished",
+  "Tenant_Preferred": "Family",
   "Bathroom": 2,
-  "floor_num": 5,
-  "total_floors": 10,
-  "Area Locality": "Andheri"
+  "floor_num": 1,
+  "total_floors": 3,
+  "Area_Locality": "Whitefield"
 }
 ```
 
-### Get Model Info
+### Get Model Info (Metrics + Specs)
 ```bash
-GET /model-info
+GET /model/info
 ```
-
-## 📈 Data Processing
-
-The data pipeline includes:
-
-1. **Data Download**: Fetch raw data from remote sources
-2. **Data Cleaning**: Remove invalid entries and parse complex fields
-3. **Feature Engineering**: Create numerical and categorical features
-4. **Target Encoding**: Apply target encoding for categorical variables
-5. **Train/Test Split**: Proper splitting to prevent data leakage
-6. **S3 Upload**: Store processed data and features in cloud storage
-
-## 🤖 Model Training
-
-The training pipeline:
-
-1. **Model Comparison**: Evaluate 10 different algorithms
-2. **Cross-Validation**: Use 5-fold CV for robust evaluation
-3. **Hyperparameter Tuning**: Optional optimization using GridSearchCV
-4. **Ensemble Creation**: Combine top models for better performance
-5. **Model Selection**: Choose best performing model
-6. **Artifact Storage**: Save models, preprocessors, and metrics
-7. **S3 Upload**: Store artifacts in cloud storage
 
 ## 🚀 Deployment
-
-### Local Development
-```bash
-# Start development server
-uvicorn src.serve:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### Production Deployment
-```bash
-# Start production server
-uvicorn src.serve:app --host 0.0.0.0 --port 8000 --workers 4
-```
 
 ### Docker Deployment
 ```bash
@@ -217,16 +173,11 @@ docker run -p 8000:8000 mlops-price-prediction
 
 ## 🧪 Testing
 
-Run the test suite:
+The codebase is thoroughly covered by `pytest`:
+
 ```bash
-# Run all tests
-python -m pytest tests/
-
-# Run specific test
-python -m pytest tests/test_features.py
-
-# Run with coverage
-python -m pytest tests/ --cov=src
+# Run all data/model/API tests
+python -m pytest tests/ -v --tb=short
 ```
 
 ## 📝 License
@@ -240,18 +191,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-## 📞 Support
-
-For support, email tanx1234567890@gmail.com or create an issue on GitHub.
-
-## 🙏 Acknowledgments
-
-- [FastAPI](https://fastapi.tiangolo.com/) for the excellent web framework
-- [Scikit-learn](https://scikit-learn.org/) for machine learning utilities
-- [AWS S3](https://aws.amazon.com/s3/) for cloud storage
-- [Pandas](https://pandas.pydata.org/) for data manipulation
-- [NumPy](https://numpy.org/) for numerical computing
 
 ---
 

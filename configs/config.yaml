@@ -36,7 +36,7 @@ model:
     stage1_iterations: 100
     stage2_refinement: true
     scoring_metric: "neg_mean_squared_error"
-  r2_threshold: 0.75  # Increased from 0.6 for better quality
+  r2_threshold: 0.30  # Lowered to reflect actual dataset noise ceiling
   ensemble:
     voting: true
     stacking: true

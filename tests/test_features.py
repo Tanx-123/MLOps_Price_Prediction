@@ -1,6 +1,4 @@
-"""
-Tests for data_pipeline.py.
-"""
+"""Tests for data_pipeline.py — cleaning, validation, encoding, and feature building."""
 
 import pytest
 import pandas as pd
@@ -8,18 +6,16 @@ import numpy as np
 import sys
 import os
 
-# Add the project root directory to the Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.data_pipeline import clean_data, parse_floor, validate_data, load_config
-from src.data_pipeline import target_encode, build_features
+from src.data_pipeline import clean_data, parse_floor, validate_data
+from src.core_utils import load_config, target_encode, build_features
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 @pytest.fixture
 def sample_raw_df():
-    """Create a sample raw DataFrame matching the dataset schema."""
     return pd.DataFrame({
         "Posted On": ["2022-05-18", "2022-05-13", "2022-05-16", "2022-05-10"],
         "BHK": [2, 3, 2, 4],
@@ -38,7 +34,6 @@ def sample_raw_df():
 
 @pytest.fixture
 def sample_cleaned_df():
-    """Create a sample cleaned DataFrame (post data_cleaning)."""
     return pd.DataFrame({
         "BHK": [2, 3, 2, 4],
         "Rent": [10000, 25000, 15000, 50000],
@@ -59,7 +54,7 @@ def config():
     return load_config("configs/config.yaml")
 
 
-# ── parse_floor tests ────────────────────────────────────────────────
+# ── parse_floor ──────────────────────────────────────────────────────
 
 class TestParseFloor:
     def test_normal_floor(self):
@@ -83,7 +78,7 @@ class TestParseFloor:
         assert np.isnan(result[0]) and np.isnan(result[1])
 
 
-# ── clean_data tests ─────────────────────────────────────────────────
+# ── clean_data ───────────────────────────────────────────────────────
 
 class TestCleanData:
     def test_drops_unnecessary_columns(self, sample_raw_df):
@@ -119,25 +114,24 @@ class TestCleanData:
 
     def test_output_shape(self, sample_raw_df):
         result = clean_data(sample_raw_df)
-        # Should have: BHK, Rent, Size, Area Type, Area Locality, City,
+        # BHK, Rent, Size, Area Type, Area Locality, City,
         # Furnishing Status, Tenant Preferred, Bathroom, floor_num, total_floors
         assert result.shape[1] == 11
 
 
-# ── validate_data tests ──────────────────────────────────────────────
+# ── validate_data ────────────────────────────────────────────────────
 
 class TestValidateData:
     def test_valid_data_passes(self, sample_cleaned_df, config):
-        # Should not raise
         validate_data(sample_cleaned_df, config)
 
     def test_missing_target_fails(self, sample_cleaned_df, config):
         df = sample_cleaned_df.drop(columns=["Rent"])
-        with pytest.raises(ValueError, match="Target column"):
+        with pytest.raises(ValueError, match="Missing expected columns"):
             validate_data(df, config)
 
 
-# ── target_encode tests ──────────────────────────────────────────────
+# ── target_encode ────────────────────────────────────────────────────
 
 class TestTargetEncode:
     def test_output_is_numeric(self, sample_cleaned_df):
@@ -147,23 +141,22 @@ class TestTargetEncode:
     def test_returns_encoding_map(self, sample_cleaned_df):
         _, encoding_map = target_encode(sample_cleaned_df, "Area Locality", "Rent")
         assert isinstance(encoding_map, dict)
-        assert "whitefield" in encoding_map  # Case is normalized to lowercase
+        assert "Whitefield" in encoding_map
 
     def test_encoded_length_matches(self, sample_cleaned_df):
         encoded, _ = target_encode(sample_cleaned_df, "Area Locality", "Rent")
         assert len(encoded) == len(sample_cleaned_df)
 
 
-# ── build_features tests ─────────────────────────────────────────────
+# ── build_features ───────────────────────────────────────────────────
 
 class TestBuildFeatures:
     def test_output_shapes(self, sample_cleaned_df, config):
-        X_train, X_test, y_train, y_test, preprocessor, maps = build_features(sample_cleaned_df, config)
-        # Test that train/test split works correctly (using integer division for exact match)
-        total_len = len(sample_cleaned_df)
-        expected_train = int(total_len * 0.8)
-        expected_test = total_len - expected_train
-        
+        X_train, X_test, y_train, y_test, _, _ = build_features(sample_cleaned_df, config)
+        total = len(sample_cleaned_df)
+        expected_train = int(total * 0.8)
+        expected_test = total - expected_train
+
         assert X_train.shape[0] == expected_train
         assert X_test.shape[0] == expected_test
         assert len(y_train) == expected_train
@@ -171,14 +164,13 @@ class TestBuildFeatures:
 
     def test_preprocessor_is_fitted(self, sample_cleaned_df, config):
         _, _, _, _, preprocessor, _ = build_features(sample_cleaned_df, config)
-        # ColumnTransformer should have transformers_ after fitting
         assert hasattr(preprocessor, "transformers_")
 
     def test_y_is_rent(self, sample_cleaned_df, config):
         _, _, y_train, y_test, _, _ = build_features(sample_cleaned_df, config)
-        # Check that y values are from the Rent column
-        assert all(y in sample_cleaned_df["Rent"].values for y in y_train)
-        assert all(y in sample_cleaned_df["Rent"].values for y in y_test)
+        rents = sample_cleaned_df["Rent"].values
+        assert all(y in rents for y in y_train)
+        assert all(y in rents for y in y_test)
 
     def test_target_encoding_maps_returned(self, sample_cleaned_df, config):
         _, _, _, _, _, maps = build_features(sample_cleaned_df, config)

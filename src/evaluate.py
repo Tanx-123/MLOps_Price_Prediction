@@ -1,173 +1,120 @@
 """
-Evaluate the trained model using the new pipeline. Fetch artifacts from S3 if not present locally.
+Evaluate the trained model on the held-out test split.
 
-Pipeline:
-    1. Download cleaned data from S3
-    2. Preprocess with saved preprocessing artifacts
-    3. Split into train/test with same random state
-    4. Evaluate model on test set
-    5. Compute MAE, RMSE, R²
-    6. Save metrics locally + upload to S3
-    7. Exit code 1 if R² < threshold (quality gate)
+Exits with code 1 if R² < threshold (quality gate).
 
 Usage:
     python -m src.evaluate
 """
-
 import os
+import sys
 import json
 import logging
 import argparse
 
-import yaml
 import numpy as np
 import pandas as pd
 import joblib
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
 
-from src.core_utils import download_from_s3, upload_to_s3, load_config
+from src.core_utils import load_config, ensure_local_file, upload_to_s3, compute_metrics
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def ensure_local_file(local_path, bucket, s3_key):
-    """Ensure a file exists locally; download from S3 if missing."""
-    if os.path.exists(local_path):
-        logger.info(f"Found locally: {local_path}")
-        return True
-    logger.info(f"Not found locally, downloading from S3: {s3_key}")
-    return download_from_s3(bucket, s3_key, local_path)
-
-
-def compute_metrics(y_true, y_pred):
-    """Compute regression metrics."""
-    return {
-        "mae": round(float(mean_absolute_error(y_true, y_pred)), 2),
-        "rmse": round(float(np.sqrt(mean_squared_error(y_true, y_pred))), 2),
-        "r2": round(float(r2_score(y_true, y_pred)), 4),
-    }
-
-def preprocess_for_evaluation(df, config, preprocessor, target_encoding_maps):
-    """Preprocess data for evaluation."""
-    target_col = config.get("features", {}).get("target", "Rent")
-    y = df[target_col].values
-    
-    # Target encoding for high cardinality features
-    for col, encoding_map in target_encoding_maps.items():
+def apply_target_encoding(df, encoding_maps):
+    """Apply pre-computed target encoding maps to the dataframe."""
+    for col, enc_map in encoding_maps.items():
         if col in df.columns:
-            global_mean = np.mean(list(encoding_map.values())) if encoding_map else 0
-            df[col] = df[col].map(encoding_map).fillna(global_mean)
-            
-    X = preprocessor.transform(df)
-    return X, y
+            fallback = np.mean(list(enc_map.values())) if enc_map else 0
+            df[col] = df[col].map(enc_map).fillna(fallback)
+    return df
 
+
+def load_artifact(path, bucket, prefix, filename):
+    """Load a joblib artifact, downloading from S3 if needed."""
+    full_path = os.path.join(path, filename)
+    if not ensure_local_file(full_path, bucket, f"{prefix}/{filename}"):
+        logger.error(f"Failed to load {filename}")
+        sys.exit(1)
+    return joblib.load(full_path)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate rent prediction model")
-    parser.add_argument("--config", default="configs/config.yaml", help="Config file path")
+    parser = argparse.ArgumentParser(description="Evaluate trained model")
+    parser.add_argument("--config", default="configs/config.yaml")
     args = parser.parse_args()
+
     config = load_config(args.config)
-    s3_config = config["s3"]
-    data_config = config["data"]
-    model_config = config["model"]
+    s3_cfg = config["s3"]
+    data_cfg = config["data"]
+    model_cfg = config["model"]
 
-    artifacts_dir = data_config["artifacts_path"]
-    processed_dir = data_config["processed_path"]
-    bucket = s3_config["bucket"]
-    # Step 1: Ensure all essential artifacts are available
-    logger.info("Step 1: Loading production artifacts...")    
-    # Load best model
-    model_path = os.path.join(artifacts_dir, "best_model.joblib")
-    if not ensure_local_file(model_path, bucket, f"{s3_config['artifacts_prefix']}/best_model.joblib"):
-        logger.error("Failed to load best model.")
-        exit(1)
-    model = joblib.load(model_path)
-    logger.info(f"Loaded best model: {model.__class__.__name__}")
+    artifacts_dir = data_cfg["artifacts_path"]
+    bucket = s3_cfg["bucket"]
+    prefix = s3_cfg["artifacts_prefix"]
 
-    # Load preprocessing artifacts
-    preprocessor_path = os.path.join(artifacts_dir, "preprocessor.joblib")
-    if not ensure_local_file(preprocessor_path, bucket, f"{s3_config['artifacts_prefix']}/preprocessor.joblib"):
-        logger.error("Failed to load preprocessor.")
-        exit(1)
-    preprocessor = joblib.load(preprocessor_path)
-    logger.info("Loaded preprocessor")
+    # 1. Load artifacts
+    logger.info("Loading model artifacts...")
+    model = load_artifact(artifacts_dir, bucket, prefix, "best_model.joblib")
+    preprocessor = load_artifact(artifacts_dir, bucket, prefix, "preprocessor.joblib")
+    encoding_maps = load_artifact(artifacts_dir, bucket, prefix, "target_encoding_maps.joblib")
+    logger.info(f"Loaded model: {model.__class__.__name__}")
 
-    target_encoding_maps_path = os.path.join(artifacts_dir, "target_encoding_maps.joblib")
-    if not ensure_local_file(target_encoding_maps_path, bucket, f"{s3_config['artifacts_prefix']}/target_encoding_maps.joblib"):
-        logger.error("Failed to load target encoding maps.")
-        exit(1)
-    target_encoding_maps = joblib.load(target_encoding_maps_path)
-    logger.info("Loaded target encoding maps")
-
-    # Step 2: Download cleaned data for evaluation
-    logger.info("Step 2: Downloading cleaned data for evaluation...")
-    clean_path = os.path.join(processed_dir, "cleaned_data.csv")
-    if not ensure_local_file(clean_path, bucket, s3_config["processed_key"]):
+    # 2. Load cleaned data
+    clean_path = os.path.join(data_cfg["processed_path"], "cleaned_data.csv")
+    if not ensure_local_file(clean_path, bucket, s3_cfg["processed_key"]):
         logger.error("Failed to load cleaned data.")
-        exit(1)
+        sys.exit(1)
 
-    # Step 3: Preprocess data for evaluation
-    logger.info("Step 3: Preprocessing data for evaluation...")
+    # 3. Reproduce the same train/test split used during training
     df = pd.read_csv(clean_path)
-    X_test, y_test = preprocess_for_evaluation(df, config, preprocessor, target_encoding_maps)
+    test_size = model_cfg.get("test_size", 0.2)
+    random_state = model_cfg.get("random_state", 42)
+    _, test_df = train_test_split(df, test_size=test_size, random_state=random_state)
+    logger.info(f"Test set: {len(test_df)} rows (from {len(df)} total)")
 
-    # Step 4: Predict and evaluate
-    logger.info("Step 4: Evaluating model...")
+    # 4. Preprocess test data and predict
+    test_df = apply_target_encoding(test_df, encoding_maps)
+    target_col = config["features"]["target"]
+    y_test = test_df[target_col].values
+    X_test = preprocessor.transform(test_df)
+
     y_pred = model.predict(X_test)
     metrics = compute_metrics(y_test, y_pred)
 
-    logger.info("=" * 60)
+    logger.info("=" * 50)
     logger.info("EVALUATION RESULTS")
-    logger.info("=" * 60)
-    logger.info(f"Best Model: {model.__class__.__name__}")
-    logger.info(f"Test Set Size: {len(y_test)}")
-    logger.info("-" * 60)
-    logger.info(f"  MAE  : {metrics['mae']:>12,.2f}")
-    logger.info(f"  RMSE : {metrics['rmse']:>12,.2f}")
-    logger.info(f"  R²   : {metrics['r2']:>12.4f}")
-    logger.info("=" * 60)
+    logger.info("=" * 50)
+    logger.info(f"  Model : {model.__class__.__name__}")
+    logger.info(f"  MAE   : {metrics['mae']:>10,.2f}")
+    logger.info(f"  RMSE  : {metrics['rmse']:>10,.2f}")
+    logger.info(f"  R²    : {metrics['r2']:>10.4f}")
+    logger.info("=" * 50)
 
-    # Step 5: Save metrics
+    # 5. Save & upload metrics
     os.makedirs(artifacts_dir, exist_ok=True)
-    eval_metrics_path = os.path.join(artifacts_dir, "eval_metrics.json")
-    eval_metrics = {
+    eval_path = os.path.join(artifacts_dir, "eval_metrics.json")
+    eval_data = {
         "evaluation": metrics,
         "model_type": model.__class__.__name__,
         "test_size": len(y_test),
-        "evaluation_date": pd.Timestamp.now().isoformat()
+        "evaluation_date": pd.Timestamp.now().isoformat(),
     }
-    
-    with open(eval_metrics_path, "w") as f:
-        json.dump(eval_metrics, f, indent=2)
-    logger.info(f"Saved evaluation metrics to {eval_metrics_path}")
+    with open(eval_path, "w") as f:
+        json.dump(eval_data, f, indent=2)
 
-    # Upload metrics to S3
-    upload_to_s3(
-        eval_metrics_path,
-        bucket,
-        f"{s3_config['artifacts_prefix']}/eval_metrics.json",
-    )
+    upload_to_s3(eval_path, bucket, f"{prefix}/eval_metrics.json")
 
-    # Step 6: Quality gate
-    r2_threshold = model_config.get("r2_threshold", 0.75)  # Increased threshold
-    if metrics["r2"] < r2_threshold:
-        logger.error(
-            f"QUALITY GATE FAILED: R² ({metrics['r2']}) < threshold ({r2_threshold})"
-        )
-        logger.error("Model performance is below acceptable threshold.")
-        exit(1)
-    else:
-        logger.info(
-            f"QUALITY GATE PASSED: R² ({metrics['r2']}) >= threshold ({r2_threshold})"
-        )
-        logger.info("Model performance meets quality standards.")
+    # 6. Quality gate
+    threshold = model_cfg.get("r2_threshold", 0.75)
+    if metrics["r2"] < threshold:
+        logger.error(f"QUALITY GATE FAILED: R² {metrics['r2']} < {threshold}")
+        sys.exit(1)
 
-    logger.info("Evaluation pipeline complete!")
-    logger.info(f"Model ready for production serving.")
+    logger.info(f"QUALITY GATE PASSED: R² {metrics['r2']} >= {threshold}")
+    logger.info("Model ready for production.")
 
 
 if __name__ == "__main__":

@@ -1,45 +1,36 @@
 """
-Unified data pipeline for the ML project.
-Consolidated from fetch_data.py, data_cleaning.py, and feature_engineering.py.
-Pipeline:
-    1. Download raw data from S3 (if needed)
-    2. Clean data (drop nulls, parse Floor, drop unnecessary columns)
-    3. Validate cleaned data
-    4. Save locally to data/processed/cleaned_data.csv
-    5. Build features with proper train/test split
-    6. Save preprocessing artifacts
-    7. Upload to S3
+Data pipeline — fetch raw data from S3, clean, validate, build features, upload.
 
 Usage:
     python -m src.data_pipeline
+    python -m src.data_pipeline --skip-download
 """
 import os
+import sys
 import logging
 import argparse
+
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
 from src.core_utils import (
     load_config, download_from_s3, upload_to_s3, upload_directory_to_s3,
-    target_encode, target_encode_with_map, save_model
+    build_features, save_model,
 )
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-def parse_floor(floor_str):
-    """Parse 'X out of Y' floor string into (floor_num, total_floors).
 
-    Handles special cases:
-        - 'Ground out of 2' → (0, 2)
-        - 'Upper Basement out of 2' → (-1, 2)
-        - 'Lower Basement out of 2' → (-2, 2)
-        - '2 out of 5' → (2, 5)
+# ── Cleaning helpers ─────────────────────────────────────────────────
+
+FLOOR_LABELS = {"ground": 0, "upper basement": -1, "lower basement": -2}
+
+
+def parse_floor(floor_str):
+    """Parse 'X out of Y' → (floor_num, total_floors).
+
+    Handles Ground, Upper/Lower Basement, numeric floors, and bad input (→ NaN).
     """
     try:
         if pd.isna(floor_str):
@@ -49,24 +40,16 @@ def parse_floor(floor_str):
         if len(parts) != 2:
             return np.nan, np.nan
 
-        floor_part = parts[0].strip()
-        total_part = parts[1].strip()
+        floor_part, total_part = parts[0].strip(), parts[1].strip()
 
-        # Parse total floors
         try:
             total_floors = int(total_part)
         except ValueError:
             total_floors = np.nan
 
-        # Parse floor number
-        floor_map = {
-            "ground": 0,
-            "upper basement": -1,
-            "lower basement": -2,
-        }
-        floor_lower = floor_part.lower()
-        if floor_lower in floor_map:
-            floor_num = floor_map[floor_lower]
+        label = floor_part.lower()
+        if label in FLOOR_LABELS:
+            floor_num = FLOOR_LABELS[label]
         else:
             try:
                 floor_num = int(floor_part)
@@ -79,204 +62,112 @@ def parse_floor(floor_str):
 
 
 def clean_data(df):
-    """Clean the raw rent dataset.
-    Steps:
-        1. Drop 'Point of Contact' and 'Posted On' columns
-        2. Parse 'Floor' into 'floor_num' and 'total_floors'
-        3. Drop original 'Floor' column
-        4. Drop rows with any remaining null values
-
-    Args:
-        df: Raw DataFrame.
-    Returns:
-        Cleaned DataFrame.
-    """
+    """Drop junk columns, parse Floor, normalize locality, drop null rows."""
     logger.info(f"Raw data shape: {df.shape}")
 
-    # Drop unnecessary columns
-    cols_to_drop = ["Point of Contact", "Posted On"]
-    existing_drops = [c for c in cols_to_drop if c in df.columns]
-    df = df.drop(columns=existing_drops)
-    logger.info(f"Dropped columns: {existing_drops}")
+    # Drop columns we don't need
+    drop_cols = [c for c in ["Point of Contact", "Posted On"] if c in df.columns]
+    df = df.drop(columns=drop_cols)
+    logger.info(f"Dropped columns: {drop_cols}")
 
-    # Parse Floor column
+    # Parse Floor → floor_num + total_floors
     if "Floor" in df.columns:
-        floor_parsed = df["Floor"].apply(parse_floor)
-        df["floor_num"] = floor_parsed.apply(lambda x: x[0])
-        df["total_floors"] = floor_parsed.apply(lambda x: x[1])
+        parsed = df["Floor"].apply(parse_floor)
+        df["floor_num"] = parsed.apply(lambda x: x[0])
+        df["total_floors"] = parsed.apply(lambda x: x[1])
         df = df.drop(columns=["Floor"])
         logger.info("Parsed 'Floor' → 'floor_num', 'total_floors'")
 
-    # Drop rows with nulls
+    # Lowercase locality for consistent target encoding
+    if "Area Locality" in df.columns:
+        df["Area Locality"] = df["Area Locality"].str.lower()
+
     before = len(df)
     df = df.dropna().reset_index(drop=True)
-    after = len(df)
-    logger.info(f"Dropped {before - after} rows with nulls. Remaining: {after}")
+    logger.info(f"Dropped {before - len(df)} null rows. Remaining: {len(df)}")
 
     return df
 
+
 def validate_data(df, config):
-    """Validate cleaned data has expected columns and no nulls.
-    Args:
-        df: Cleaned DataFrame.
-        config: Config dictionary.
-    Raises:
-        ValueError: If validation fails.
-    """
-    # Check no nulls remain
-    null_counts = df.isnull().sum()
-    if null_counts.sum() > 0:
-        raise ValueError(f"Cleaned data still has nulls:\n{null_counts[null_counts > 0]}")
+    """Sanity-check cleaned data: no nulls, all expected columns present."""
+    nulls = df.isnull().sum()
+    if nulls.sum() > 0:
+        raise ValueError(f"Cleaned data still has nulls:\n{nulls[nulls > 0]}")
 
-    # Check target column exists
-    target = config["features"]["target"]
-    if target not in df.columns:
-        raise ValueError(f"Target column '{target}' not found in cleaned data")
-
-    # Check expected feature columns exist
-    expected_cols = (
-        config["features"]["numerical"]
-        + config["features"]["categorical"]
-        + config["features"]["high_cardinality"]
-        + [target]
-    )
-    # Some numerical features (floor_num, total_floors) are created during cleaning
-    for col in expected_cols:
-        if col not in df.columns:
-            raise ValueError(f"Expected column '{col}' not found in cleaned data")
-
-    logger.info(f"Data validation passed. Shape: {df.shape}, Columns: {list(df.columns)}")
-
-def build_features(df, config):
-    """Build features with proper train/test split to prevent data leakage."""
     features = config["features"]
-    target_col = features["target"]
-    model_config = config["model"]
+    target = features["target"]
 
-    test_size = model_config.get("test_size", 0.2)
-    random_state = model_config.get("random_state", 42)
-    
-    train_df, test_df = train_test_split(
-        df, test_size=test_size, random_state=random_state, stratify=None
-    )
-    
-    logger.info(f"Train set: {train_df.shape}, Test set: {test_df.shape}")
+    expected = features["numerical"] + features["categorical"] + features["high_cardinality"] + [target]
+    missing = [c for c in expected if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing expected columns: {missing}")
 
-    target_encoding_maps = {}
-    for col in features.get("high_cardinality", []):
-        logger.info(f"Target-encoding column: {col}")
-        train_df[col], encoding_map = target_encode(train_df, col, target_col)
-        target_encoding_maps[col] = encoding_map
+    logger.info(f"Validation passed — {df.shape[0]} rows, {df.shape[1]} cols")
 
-        # Apply the same encoding to test set (using training data's encoding)
-        global_mean = train_df[target_col].mean()
-        test_df[col] = target_encode_with_map(test_df, col, encoding_map, global_mean)
 
-    numerical_cols = features["numerical"] + features.get("high_cardinality", [])
-    categorical_cols = features["categorical"]
-
-    logger.info(f"Numerical features ({len(numerical_cols)}): {numerical_cols}")
-    logger.info(f"Categorical features ({len(categorical_cols)}): {categorical_cols}")
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ("num", StandardScaler(), numerical_cols),
-            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
-        ],
-        remainder="drop",
-    )
-
-    X_train = preprocessor.fit_transform(train_df)
-    X_test = preprocessor.transform(test_df)
-
-    y_train = train_df[target_col].values
-    y_test = test_df[target_col].values
-
-    logger.info(f"Train feature matrix shape: {X_train.shape}")
-    logger.info(f"Test feature matrix shape: {X_test.shape}")
-
-    return X_train, X_test, y_train, y_test, preprocessor, target_encoding_maps
+# ── Main pipeline ────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Complete data pipeline from raw data to features")
-    parser.add_argument("--config", default="configs/config.yaml", help="Config file path")
-    parser.add_argument("--skip-download", action="store_true", help="Skip downloading raw data if local file exists")
+    parser = argparse.ArgumentParser(description="Data pipeline: fetch → clean → features → S3")
+    parser.add_argument("--config", default="configs/config.yaml")
+    parser.add_argument("--skip-download", action="store_true", help="Skip S3 download if local file exists")
     args = parser.parse_args()
-    config = load_config(args.config)
-    s3_config = config["s3"]
-    data_config = config["data"]
 
-    # Step 1: Download raw data from S3 if needed
-    raw_path = data_config["raw_path"]
+    config = load_config(args.config)
+    s3 = config["s3"]
+    data = config["data"]
+
+    # 1. Get raw data
+    raw_path = data["raw_path"]
     if not args.skip_download or not os.path.exists(raw_path):
-        logger.info("Step 1: Fetching raw data from S3...")
-        success = download_from_s3(
-            bucket=s3_config["bucket"],
-            key=s3_config["raw_key"],
-            local_path=raw_path,
-        )
-        
-        if not success:
+        logger.info("Fetching raw data from S3...")
+        ok = download_from_s3(s3["bucket"], s3["raw_key"], raw_path)
+        if not ok:
             if os.path.exists(raw_path):
                 logger.info("S3 download failed but local data exists, continuing...")
             else:
-                logger.error("Failed to fetch raw data from S3 and no local data found. Exiting.")
-                exit(1)
+                logger.error("No data available — S3 download failed and no local file.")
+                sys.exit(1)
     else:
-        logger.info("Step 1: Raw data already exists locally, skipping download")
+        logger.info("Raw data already exists locally, skipping download")
 
-    # Step 2: Load and clean
-    logger.info("Step 2: Cleaning data...")
-    df = pd.read_csv(raw_path)
-    df_clean = clean_data(df)
+    # 2. Clean
+    logger.info("Cleaning data...")
+    df_clean = clean_data(pd.read_csv(raw_path))
 
-    # Step 3: Validate
-    logger.info("Step 3: Validating cleaned data...")
+    # 3. Validate
     validate_data(df_clean, config)
 
-    # Step 4: Save locally
-    processed_dir = data_config["processed_path"]
+    # 4. Save cleaned data
+    processed_dir = data["processed_path"]
     os.makedirs(processed_dir, exist_ok=True)
     clean_path = os.path.join(processed_dir, "cleaned_data.csv")
     df_clean.to_csv(clean_path, index=False)
-    logger.info(f"Step 4: Saved cleaned data to {clean_path}")
-     
-    # Step 5: Build features=b6
-    logger.info("Step 5: Building features with proper train/test split...")
-    X_train, X_test, y_train, y_test, preprocessor, target_encoding_maps = build_features(df_clean, config)
+    logger.info(f"Saved cleaned data to {clean_path}")
 
-    # Step 6: Save preprocessing artifacts (needed for serving)
+    # 5. Build features (train/test split + preprocessing)
+    logger.info("Building features...")
+    X_train, X_test, y_train, y_test, preprocessor, encoding_maps = build_features(df_clean, config)
+
+    # 6. Save preprocessing artifacts
     features_dir = os.path.join(processed_dir, "features")
     os.makedirs(features_dir, exist_ok=True)
-
     save_model(preprocessor, os.path.join(features_dir, "preprocessor.joblib"))
-    save_model(target_encoding_maps, os.path.join(features_dir, "target_encoding_maps.joblib"))
-    
-    logger.info(f"Step 6: Saved preprocessing artifacts to {features_dir}")
+    save_model(encoding_maps, os.path.join(features_dir, "target_encoding_maps.joblib"))
+    logger.info(f"Saved preprocessing artifacts to {features_dir}")
 
-    # Step 7: Upload to S3
-    logger.info("Step 7: Uploading data and features to S3...")
-    
-    # Upload cleaned data
-    success1 = upload_to_s3(
-        clean_path,
-        s3_config["bucket"],
-        s3_config["processed_key"],
-    )
-    # Upload features
-    success2 = upload_directory_to_s3(
-        features_dir,
-        s3_config["bucket"],
-        s3_config["features_prefix"],
-    )
-    
-    if success1 and success2:
-        logger.info("Data pipeline complete! All files uploaded to S3 successfully!")
+    # 7. Upload everything to S3
+    logger.info("Uploading to S3...")
+    ok1 = upload_to_s3(clean_path, s3["bucket"], s3["processed_key"])
+    ok2 = upload_directory_to_s3(features_dir, s3["bucket"], s3["features_prefix"])
+
+    if ok1 and ok2:
+        logger.info("Data pipeline complete — all files uploaded to S3!")
     else:
-        logger.error("Some uploads failed.")
-        exit(1)
+        logger.error("Some S3 uploads failed.")
+        sys.exit(1)
 
-    logger.info("Data pipeline complete!")
 
 if __name__ == "__main__":
     main()
