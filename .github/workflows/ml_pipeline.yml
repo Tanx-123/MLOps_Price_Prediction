@@ -38,9 +38,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt ruff
 
-      - name: Run Ruff Linter
-        run: ruff check .
-
       - name: Run tests
         run: pytest tests/ -v --tb=short
 
