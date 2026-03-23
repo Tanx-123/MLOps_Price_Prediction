@@ -104,29 +104,6 @@ The pipeline evaluates and compares 5 top estimators across 5-fold cross-validat
 - Test MAE: ~14,678
 - Test R²: ~0.48 (Passes configurable pipeline thresholds)
 
-## 🔧 Configuration
-
-Pipeline behavior is controlled via `configs/config.yaml`. Example:
-
-```yaml
-data:
-  raw_path: "data/raw/raw_data.csv"
-  processed_path: "data/processed"
-  artifacts_path: "artifacts"
-
-s3:
-  bucket: "price-trend-tanx"
-  region: "ap-south-1"
-
-model:
-  type: "ensemble"
-  test_size: 0.2
-  cv_folds: 5
-  r2_threshold: 0.30
-  ensemble:
-    top_models: 3
-```
-
 ## 🌐 API Endpoints
 
 Once the `uvicorn` server is running on `localhost:8000`, test the endpoints:
