@@ -18,6 +18,9 @@ features:
     - Bathroom
     - floor_num
     - total_floors
+    - size_per_bhk
+    - bath_to_bhk_ratio
+    - floor_ratio
   categorical:
     - Area Type
     - City
@@ -26,6 +29,9 @@ features:
   high_cardinality:
     - Area Locality
   target: Rent
+  target_transform: log1p  # Apply log1p to target before training
+  outlier_cap_percentile: 99  # Cap extreme rent values
+  target_encoding_smoothing: 30  # Increased from 10 for regularization
 
 model:
   type: "ensemble"  # Will be updated to actual best model type
@@ -36,7 +42,7 @@ model:
     stage1_iterations: 100
     stage2_refinement: true
     scoring_metric: "neg_mean_squared_error"
-  r2_threshold: 0.30  # Lowered to reflect actual dataset noise ceiling
+  r2_threshold: 0.55  # Raised after accuracy improvements
   ensemble:
     voting: true
     stacking: true

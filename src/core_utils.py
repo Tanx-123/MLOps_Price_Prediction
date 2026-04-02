@@ -13,6 +13,7 @@ import joblib
 import boto3
 from botocore.exceptions import ClientError
 from sklearn.model_selection import train_test_split
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -161,20 +162,80 @@ def load_model(path):
 def target_encode(df, column, target, smoothing=10):
     """Smoothed target encoding for a high-cardinality column.
 
-    Returns (encoded_series, encoding_map_dict).
+    Returns (encoded_series, encoding_artifact_dict).
+
+    `encoding_artifact_dict` contains:
+      - `map`: category -> encoded value
+      - `global_mean`: fallback used for unseen categories
     """
     global_mean = df[target].mean()
     agg = df.groupby(column)[target].agg(["mean", "count"])
     smooth = (agg["count"] * agg["mean"] + smoothing * global_mean) / (agg["count"] + smoothing)
 
-    encoding_map = smooth.to_dict()
-    encoded = df[column].map(encoding_map).fillna(global_mean)
-    return encoded, encoding_map
+    category_map = smooth.to_dict()
+    encoded = df[column].map(category_map).fillna(global_mean)
+    return encoded, {"map": category_map, "global_mean": float(global_mean)}
 
 
-def apply_target_encoding(df, column, encoding_map, global_mean):
-    """Apply a pre-computed target encoding map to a column."""
-    return df[column].map(encoding_map).fillna(global_mean)
+def apply_target_encoding(df, column, encoding_artifact):
+    """Apply a pre-computed target encoding artifact to a column."""
+    mapping = encoding_artifact.get("map", {}) if isinstance(encoding_artifact, dict) else {}
+    global_mean = encoding_artifact.get("global_mean", 0.0) if isinstance(encoding_artifact, dict) else 0.0
+    return df[column].map(mapping).fillna(global_mean)
+
+
+class TargetEncodingTransformer(BaseEstimator, TransformerMixin):
+    """sklearn-compatible supervised target encoder.
+
+    Fits a smoothed target-encoding map per column using (X, y), then transforms
+    those columns into numeric encoded values.
+    """
+
+    def __init__(self, columns, smoothing=10):
+        self.columns = columns
+        self.smoothing = smoothing
+
+    def fit(self, X, y):
+        # Expect X as a pandas.DataFrame (we index by column names).
+        if not hasattr(X, "columns"):
+            raise TypeError("TargetEncodingTransformer expects X as a pandas.DataFrame")
+
+        self.global_mean_ = float(np.mean(y))
+        self.encoding_maps_ = {}
+
+        y_arr = np.asarray(y)
+        for col in self.columns:
+            if col not in X.columns:
+                continue
+
+            agg_df = pd.DataFrame({col: X[col], "_target": y_arr}).groupby(col)["_target"].agg(["mean", "count"])
+            smooth = (agg_df["count"] * agg_df["mean"] + self.smoothing * self.global_mean_) / (
+                agg_df["count"] + self.smoothing
+            )
+            self.encoding_maps_[col] = {
+                "map": smooth.to_dict(),
+                "global_mean": self.global_mean_,
+            }
+
+        return self
+
+    def transform(self, X):
+        if not hasattr(X, "columns"):
+            raise TypeError("TargetEncodingTransformer expects X as a pandas.DataFrame")
+
+        X_out = X.copy()
+        for col in self.columns:
+            if col not in X_out.columns:
+                continue
+            if col not in self.encoding_maps_:
+                # Column existed in data but wasn't seen during fit.
+                X_out[col] = pd.Series(np.full(len(X_out), self.global_mean_), index=X_out.index)
+                continue
+
+            encoding_artifact = self.encoding_maps_[col]
+            X_out[col] = X_out[col].map(encoding_artifact["map"]).fillna(encoding_artifact["global_mean"])
+
+        return X_out
 
 
 # ── Preprocessing ────────────────────────────────────────────────────
@@ -184,11 +245,21 @@ def build_features(df, config):
 
     Returns (X_train, X_test, y_train, y_test, preprocessor, encoding_maps).
     Target encoding is fit on train only to prevent data leakage.
+    If target_transform is 'log1p', y values are log-transformed.
     """
     features = config["features"]
     target_col = features["target"]
     test_size = config["model"].get("test_size", 0.2)
     random_state = config["model"].get("random_state", 42)
+    smoothing = features.get("target_encoding_smoothing", 10)
+    target_transform = features.get("target_transform", None)
+
+    # Engineer features if not already present
+    if "size_per_bhk" not in df.columns:
+        df = df.copy()
+        df["size_per_bhk"] = df["Size"] / df["BHK"].clip(lower=1)
+        df["bath_to_bhk_ratio"] = df["Bathroom"] / df["BHK"].clip(lower=1)
+        df["floor_ratio"] = df["floor_num"] / df["total_floors"].clip(lower=1)
 
     train_df, test_df = train_test_split(df, test_size=test_size, random_state=random_state)
     logger.info(f"Train: {train_df.shape}, Test: {test_df.shape}")
@@ -196,10 +267,9 @@ def build_features(df, config):
     # Target-encode high-cardinality cols (fit on train, apply to test)
     encoding_maps = {}
     for col in features.get("high_cardinality", []):
-        train_df[col], enc_map = target_encode(train_df, col, target_col)
-        encoding_maps[col] = enc_map
-        global_mean = train_df[target_col].mean()
-        test_df[col] = apply_target_encoding(test_df, col, enc_map, global_mean)
+        train_df[col], enc_artifact = target_encode(train_df, col, target_col, smoothing=smoothing)
+        encoding_maps[col] = enc_artifact
+        test_df[col] = apply_target_encoding(test_df, col, enc_artifact)
 
     num_cols = features["numerical"] + features.get("high_cardinality", [])
     cat_cols = features["categorical"]
@@ -216,6 +286,12 @@ def build_features(df, config):
     X_test = preprocessor.transform(test_df)
     y_train = train_df[target_col].values
     y_test = test_df[target_col].values
+
+    # Apply log transform to target if configured
+    if target_transform == "log1p":
+        y_train = np.log1p(y_train)
+        y_test = np.log1p(y_test)
+        logger.info("Applied log1p transform to target variable")
 
     logger.info(f"Feature matrix — train: {X_train.shape}, test: {X_test.shape}")
     return X_train, X_test, y_train, y_test, preprocessor, encoding_maps

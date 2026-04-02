@@ -89,6 +89,33 @@ def clean_data(df):
     return df
 
 
+def cap_outliers(df, config):
+    """Cap extreme rent values using the configured percentile threshold."""
+    cap_pct = config["features"].get("outlier_cap_percentile", 99)
+    target = config["features"]["target"]
+    cap_val = df[target].quantile(cap_pct / 100)
+    before_max = df[target].max()
+    df[target] = df[target].clip(upper=cap_val)
+    capped = (df[target] == cap_val).sum()
+    logger.info(f"Capped {target} at {cap_pct}th percentile ({cap_val:.0f}). Max was {before_max:.0f}, {capped} rows capped.")
+    return df
+
+
+def engineer_features(df):
+    """Create derived features from existing columns."""
+    # Size per BHK — captures spaciousness
+    df["size_per_bhk"] = df["Size"] / df["BHK"].clip(lower=1)
+
+    # Bathroom to BHK ratio — unusual ratios signal luxury/errors
+    df["bath_to_bhk_ratio"] = df["Bathroom"] / df["BHK"].clip(lower=1)
+
+    # Floor ratio — relative position in building
+    df["floor_ratio"] = df["floor_num"] / df["total_floors"].clip(lower=1)
+
+    logger.info("Engineered features: size_per_bhk, bath_to_bhk_ratio, floor_ratio")
+    return df
+
+
 def validate_data(df, config):
     """Sanity-check cleaned data: no nulls, all expected columns present."""
     nulls = df.isnull().sum()
@@ -135,6 +162,14 @@ def main():
     # 2. Clean
     logger.info("Cleaning data...")
     df_clean = clean_data(pd.read_csv(raw_path))
+
+    # 2b. Cap outliers
+    logger.info("Capping outliers...")
+    df_clean = cap_outliers(df_clean, config)
+
+    # 2c. Engineer features
+    logger.info("Engineering features...")
+    df_clean = engineer_features(df_clean)
 
     # 3. Validate
     validate_data(df_clean, config)

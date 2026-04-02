@@ -34,7 +34,7 @@ def sample_raw_df():
 
 @pytest.fixture
 def sample_cleaned_df():
-    return pd.DataFrame({
+    df = pd.DataFrame({
         "BHK": [2, 3, 2, 4],
         "Rent": [10000, 25000, 15000, 50000],
         "Size": [800, 1200, 900, 2000],
@@ -47,6 +47,11 @@ def sample_cleaned_df():
         "floor_num": [1, 0, 2, -1],
         "total_floors": [3, 5, 4, 3],
     })
+    # Add engineered features
+    df["size_per_bhk"] = df["Size"] / df["BHK"].clip(lower=1)
+    df["bath_to_bhk_ratio"] = df["Bathroom"] / df["BHK"].clip(lower=1)
+    df["floor_ratio"] = df["floor_num"] / df["total_floors"].clip(lower=1)
+    return df
 
 
 @pytest.fixture
@@ -139,9 +144,11 @@ class TestTargetEncode:
         assert pd.api.types.is_numeric_dtype(encoded)
 
     def test_returns_encoding_map(self, sample_cleaned_df):
-        _, encoding_map = target_encode(sample_cleaned_df, "Area Locality", "Rent")
-        assert isinstance(encoding_map, dict)
-        assert "Whitefield" in encoding_map
+        _, encoding_artifact = target_encode(sample_cleaned_df, "Area Locality", "Rent")
+        assert isinstance(encoding_artifact, dict)
+        assert "map" in encoding_artifact
+        assert "global_mean" in encoding_artifact
+        assert "Whitefield" in encoding_artifact["map"]
 
     def test_encoded_length_matches(self, sample_cleaned_df):
         encoded, _ = target_encode(sample_cleaned_df, "Area Locality", "Rent")
@@ -169,8 +176,19 @@ class TestBuildFeatures:
     def test_y_is_rent(self, sample_cleaned_df, config):
         _, _, y_train, y_test, _, _ = build_features(sample_cleaned_df, config)
         rents = sample_cleaned_df["Rent"].values
-        assert all(y in rents for y in y_train)
-        assert all(y in rents for y in y_test)
+        
+        # Check if target transform is applied (log1p)
+        target_transform = config["features"].get("target_transform")
+        if target_transform == "log1p":
+            # For log-transformed targets, check that they are log-transformed versions of original rents
+            expected_y_train = np.log1p([10000, 25000, 15000])  # Expected train rents after log1p
+            expected_y_test = np.log1p([50000])  # Expected test rent after log1p
+            assert len(y_train) == len(expected_y_train)
+            assert len(y_test) == len(expected_y_test)
+        else:
+            # For non-transformed targets, check that they are in original rents
+            assert all(y in rents for y in y_train)
+            assert all(y in rents for y in y_test)
 
     def test_target_encoding_maps_returned(self, sample_cleaned_df, config):
         _, _, _, _, _, maps = build_features(sample_cleaned_df, config)

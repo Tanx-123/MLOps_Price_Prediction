@@ -27,8 +27,15 @@ def apply_target_encoding(df, encoding_maps):
     """Apply pre-computed target encoding maps to the dataframe."""
     for col, enc_map in encoding_maps.items():
         if col in df.columns:
-            fallback = np.mean(list(enc_map.values())) if enc_map else 0
-            df[col] = df[col].map(enc_map).fillna(fallback)
+            if isinstance(enc_map, dict) and "map" in enc_map:
+                mapping = enc_map.get("map", {})
+                fallback = enc_map.get("global_mean", 0.0)
+            else:
+                # Backward-compatible fallback for older artifacts.
+                mapping = enc_map if isinstance(enc_map, dict) else {}
+                fallback = np.mean(list(mapping.values())) if mapping else 0.0
+
+            df[col] = df[col].map(mapping).fillna(fallback)
     return df
 
 
@@ -77,11 +84,24 @@ def main():
 
     # 4. Preprocess test data and predict
     test_df = apply_target_encoding(test_df, encoding_maps)
+
+    # Engineer features if not present
+    if "size_per_bhk" not in test_df.columns:
+        test_df["size_per_bhk"] = test_df["Size"] / test_df["BHK"].clip(lower=1)
+        test_df["bath_to_bhk_ratio"] = test_df["Bathroom"] / test_df["BHK"].clip(lower=1)
+        test_df["floor_ratio"] = test_df["floor_num"] / test_df["total_floors"].clip(lower=1)
+
     target_col = config["features"]["target"]
+    target_transform = config["features"].get("target_transform", None)
     y_test = test_df[target_col].values
     X_test = preprocessor.transform(test_df)
 
     y_pred = model.predict(X_test)
+
+    # Inverse-transform if model was trained on log-scale
+    if target_transform == "log1p":
+        y_pred = np.expm1(y_pred)
+
     metrics = compute_metrics(y_test, y_pred)
 
     logger.info("=" * 50)

@@ -12,7 +12,6 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-
 @pytest.fixture
 def artifacts_dir(tmp_path):
     """Set up a temp directory with a fitted model, preprocessor, and encoding maps."""
@@ -28,7 +27,8 @@ def artifacts_dir(tmp_path):
         "BHK": [2, 3, 2, 3], "Size": [800, 1200, 900, 1100],
         "Bathroom": [2, 3, 2, 3], "floor_num": [1, 0, 2, 1],
         "total_floors": [3, 5, 4, 3],
-        "Area Locality": ["Whitefield", "Koramangala", "Whitefield", "Indiranagar"],
+        # Must match `src.data_pipeline.clean_data()` behavior which lowercases this column.
+        "Area Locality": ["whitefield", "koramangala", "whitefield", "indiranagar"],
         "Area Type": ["Super Area", "Carpet Area", "Super Area", "Carpet Area"],
         "City": ["Bangalore", "Chennai", "Bangalore", "Chennai"],
         "Furnishing Status": ["Furnished", "Semi-Furnished", "Unfurnished", "Furnished"],
