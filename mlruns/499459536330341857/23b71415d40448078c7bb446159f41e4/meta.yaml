@@ -1,0 +1,15 @@
+artifact_uri: file:///C:/Users/ASUS/Desktop/MLOps_Price_Prediction/mlruns/499459536330341857/23b71415d40448078c7bb446159f41e4/artifacts
+end_time: 1775112403534
+entry_point_name: ''
+experiment_id: '499459536330341857'
+lifecycle_stage: active
+run_id: 23b71415d40448078c7bb446159f41e4
+run_name: ExtraTrees
+run_uuid: 23b71415d40448078c7bb446159f41e4
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1775112371750
+status: 3
+tags: []
+user_id: ASUS

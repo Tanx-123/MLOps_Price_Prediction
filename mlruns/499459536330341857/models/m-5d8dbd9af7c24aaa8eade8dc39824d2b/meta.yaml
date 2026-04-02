@@ -1,0 +1,10 @@
+artifact_location: file:///C:/Users/ASUS/Desktop/MLOps_Price_Prediction/mlruns/499459536330341857/models/m-5d8dbd9af7c24aaa8eade8dc39824d2b/artifacts
+creation_timestamp: 1775135625990
+experiment_id: '499459536330341857'
+last_updated_timestamp: 1775135636784
+model_id: m-5d8dbd9af7c24aaa8eade8dc39824d2b
+model_type: null
+name: ExtraTrees
+source_run_id: 1bda7d8982ee472aacd0c680a3bc8a90
+status: 2
+status_message: null
