@@ -17,6 +17,7 @@ from src.core_utils import (
     load_config, download_from_s3, upload_to_s3, upload_directory_to_s3,
     build_features, save_model,
 )
+from src.locality_embeddings import generate_localities_json
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -197,7 +198,13 @@ def main():
     ok1 = upload_to_s3(clean_path, s3["bucket"], s3["processed_key"])
     ok2 = upload_directory_to_s3(features_dir, s3["bucket"], s3["features_prefix"])
 
-    if ok1 and ok2:
+    # 8. Generate and upload localities JSON for frontend
+    logger.info("Generating localities JSON...")
+    localities_path = "data/processed/localities_by_city.json"
+    generate_localities_json(df_clean, localities_path)
+    ok3 = upload_to_s3(localities_path, s3["bucket"], s3.get("localities_key", "processed_data/localities_by_city.json"))
+
+    if ok1 and ok2 and ok3:
         logger.info("Data pipeline complete — all files uploaded to S3!")
     else:
         logger.error("Some S3 uploads failed.")

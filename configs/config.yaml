@@ -10,6 +10,7 @@ s3:
   processed_key: "processed_data/cleaned_data.csv"
   features_prefix: "processed_data/features"
   artifacts_prefix: "artifacts"
+  localities_key: "processed_data/localities_by_city.json"
 
 features:
   numerical:

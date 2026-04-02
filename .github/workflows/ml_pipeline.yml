@@ -170,12 +170,6 @@ jobs:
           name: model-artifacts
           path: artifacts/
 
-      - name: Download processed data
-        uses: actions/download-artifact@v4
-        with:
-          name: processed-data
-          path: data/processed/
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

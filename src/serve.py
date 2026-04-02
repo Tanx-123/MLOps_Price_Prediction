@@ -161,6 +161,10 @@ async def _startup():
 
     # Load localities data for frontend dropdown
     localities_path = os.path.join(data_dir, "localities_by_city.json")
+    localities_s3_key = s3_cfg.get("localities_key", "processed_data/localities_by_city.json")
+    if not os.path.exists(localities_path):
+        if ensure_local_file(localities_path, bucket, localities_s3_key):
+            logger.info("Downloaded localities file from S3")
     if os.path.exists(localities_path):
         with open(localities_path, "r") as f:
             localities_data = json.load(f)
