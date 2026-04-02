@@ -427,6 +427,7 @@
                     <div class="form-group">
                         <label for="city">City</label>
                         <select id="city" required>
+                            <option value="">Select City</option>
                             <option value="Bangalore">Bangalore</option>
                             <option value="Chennai">Chennai</option>
                             <option value="Delhi">Delhi</option>
@@ -456,7 +457,9 @@
 
                     <div class="form-group full-width">
                         <label for="locality">Area / Locality</label>
-                        <input type="text" id="locality" placeholder="e.g. Whitefield, Koramangala, Bandra..." required>
+                        <select id="locality" required disabled>
+                            <option value="">Select City First</option>
+                        </select>
                     </div>
                 </div>
 
@@ -499,6 +502,45 @@
 
     <script>
         const API_BASE = window.location.origin;
+        let localitiesData = {};
+
+        // Load localities on page load
+        async function loadLocalities() {
+            try {
+                const res = await fetch(`${API_BASE}/localities`);
+                if (res.ok) {
+                    localitiesData = await res.json();
+                }
+            } catch (e) {
+                console.error('Failed to load localities:', e);
+            }
+        }
+        loadLocalities();
+
+        // City change handler - update locality dropdown
+        document.getElementById('city').addEventListener('change', function() {
+            const citySelect = this.value;
+            const localitySelect = document.getElementById('locality');
+            
+            localitySelect.innerHTML = '';
+            
+            if (citySelect && localitiesData[citySelect]) {
+                localitySelect.disabled = false;
+                const localities = localitiesData[citySelect].sort();
+                localities.forEach(loc => {
+                    const option = document.createElement('option');
+                    option.value = loc;
+                    option.textContent = loc;
+                    localitySelect.appendChild(option);
+                });
+            } else {
+                localitySelect.disabled = true;
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'Select City First';
+                localitySelect.appendChild(option);
+            }
+        });
 
         // Check API health
         async function checkHealth() {
@@ -534,9 +576,15 @@
                 // Validation: Floor number cannot be greater than total floors
                 const floorNum = parseInt(document.getElementById('floorNum').value);
                 const totalFloors = parseInt(document.getElementById('totalFloors').value);
+                const locality = document.getElementById('locality');
                 
                 if (floorNum > totalFloors) {
                     alert('Error: Floor number cannot be greater than total floors!');
+                    return;
+                }
+
+                if (!locality.value) {
+                    alert('Error: Please select a locality!');
                     return;
                 }
 

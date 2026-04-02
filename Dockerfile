@@ -11,6 +11,7 @@ COPY src/ ./src/
 COPY configs/ ./configs/
 COPY artifacts/ ./artifacts/
 COPY static/ ./static/
+COPY data/processed/localities_by_city.json ./data/processed/
 
 # Create logs directory
 RUN mkdir -p logs
