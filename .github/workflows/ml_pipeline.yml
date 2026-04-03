@@ -41,6 +41,9 @@ jobs:
       - name: Run tests
         run: pytest tests/ -v --tb=short
 
+      - name: Run linter
+        run: ruff check src/ tests/ --fix
+
   # ── Stage 2: Data Processing ─────────────────────────────────────
   data-processing:
     name: Data Processing

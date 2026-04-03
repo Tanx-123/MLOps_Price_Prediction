@@ -49,6 +49,29 @@ model:
     stacking: true
     top_models: 3
 
+model_defaults:
+  RandomForest:
+    n_estimators: 200
+    max_depth: 15
+    min_samples_leaf: 5
+    max_features: "sqrt"
+  XGBoost:
+    n_estimators: 200
+    max_depth: 6
+    learning_rate: 0.1
+    subsample: 0.8
+    colsample_bytree: 0.8
+  LightGBM:
+    n_estimators: 200
+    max_depth: 7
+    learning_rate: 0.05
+    num_leaves: 31
+  ExtraTrees:
+    n_estimators: 200
+    max_depth: 15
+    min_samples_leaf: 5
+    max_features: "sqrt"
+
 server:
   host: "0.0.0.0"
   port: 8000

@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from prometheus_client import Counter, Histogram, Gauge, generate_latest
 
 from src.core_utils import load_config, ensure_local_file, get_s3_client
+from src.features import engineer_features
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -206,9 +207,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS: allow specific origins from env var, default to all for dev
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",") if os.getenv("ALLOWED_ORIGINS") else []
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    allow_origins=allowed_origins if allowed_origins else ["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -315,9 +321,7 @@ async def predict(input_data: RentInput):
         }])
 
         # Engineer features (same logic as training pipeline)
-        df["size_per_bhk"] = df["Size"] / df["BHK"].clip(lower=1)
-        df["bath_to_bhk_ratio"] = df["Bathroom"] / df["BHK"].clip(lower=1)
-        df["floor_ratio"] = df["floor_num"] / df["total_floors"].clip(lower=1)
+        df = engineer_features(df)
 
         # Apply target encoding (same logic as training)
         if target_encoding_maps:
@@ -354,7 +358,7 @@ async def predict(input_data: RentInput):
         
         return RentOutput(predicted_rent=pred)
 
-    except Exception as e:
+    except Exception:
         REQUEST_COUNT.labels(method="POST", endpoint="/predict", status=500).inc()
         logger.exception("Prediction failed due to server error")
         raise HTTPException(500, "Prediction failed due to server error")

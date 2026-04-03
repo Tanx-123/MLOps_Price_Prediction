@@ -5,6 +5,8 @@ import os
 import logging
 import json
 import pathlib
+import time
+from functools import wraps
 
 import yaml
 import pandas as pd
@@ -20,6 +22,24 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+
+def with_retry(max_attempts: int = 3, delay: float = 1.0, backoff: float = 2.0):
+    """Decorator that retries a function on exception with exponential backoff."""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_attempts - 1:
+                        raise
+                    wait = delay * (backoff ** attempt)
+                    logger.warning(f"{func.__name__} failed: {e}. Retrying in {wait:.1f}s...")
+                    time.sleep(wait)
+        return wrapper
+    return decorator
 
 
 # ── Environment & Config ─────────────────────────────────────────────
@@ -61,6 +81,7 @@ def get_s3_client(region=None):
     )
 
 
+@with_retry(max_attempts=3, delay=1.0, backoff=2.0)
 def upload_to_s3(local_path, bucket, key, region=None):
     """Upload a local file to S3. Returns True on success."""
     if not os.path.exists(local_path):
@@ -84,6 +105,7 @@ def upload_to_s3(local_path, bucket, key, region=None):
         return False
 
 
+@with_retry(max_attempts=3, delay=1.0, backoff=2.0)
 def download_from_s3(bucket, key, local_path, region=None):
     """Download a file from S3. Returns True on success."""
     s3 = get_s3_client(region)

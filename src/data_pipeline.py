@@ -17,6 +17,7 @@ from src.core_utils import (
     load_config, download_from_s3, upload_to_s3, upload_directory_to_s3,
     build_features, save_model,
 )
+from src.features import engineer_features
 from src.locality_embeddings import generate_localities_json
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -99,21 +100,6 @@ def cap_outliers(df, config):
     df[target] = df[target].clip(upper=cap_val)
     capped = (df[target] == cap_val).sum()
     logger.info(f"Capped {target} at {cap_pct}th percentile ({cap_val:.0f}). Max was {before_max:.0f}, {capped} rows capped.")
-    return df
-
-
-def engineer_features(df):
-    """Create derived features from existing columns."""
-    # Size per BHK — captures spaciousness
-    df["size_per_bhk"] = df["Size"] / df["BHK"].clip(lower=1)
-
-    # Bathroom to BHK ratio — unusual ratios signal luxury/errors
-    df["bath_to_bhk_ratio"] = df["Bathroom"] / df["BHK"].clip(lower=1)
-
-    # Floor ratio — relative position in building
-    df["floor_ratio"] = df["floor_num"] / df["total_floors"].clip(lower=1)
-
-    logger.info("Engineered features: size_per_bhk, bath_to_bhk_ratio, floor_ratio")
     return df
 
 

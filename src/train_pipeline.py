@@ -13,7 +13,6 @@ Usage:
 """
 import os
 import sys
-import json
 import logging
 import argparse
 
@@ -35,7 +34,6 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
 try:
     import mlflow
-    from mlflow.sklearn import log_model
     MLFLOW_AVAILABLE = True
 except ImportError:
     MLFLOW_AVAILABLE = False
@@ -88,28 +86,36 @@ def log_model_run(model_name: str, model, metrics: dict, params: dict = None):
 
 # ── Model definitions ────────────────────────────────────────────────
 
-MODELS = {
-    "RandomForest": lambda: RandomForestRegressor(
-        n_estimators=200, max_depth=15, min_samples_leaf=5,
-        max_features="sqrt", random_state=42, n_jobs=-1,
-    ),
-    "XGBoost": lambda: xgb.XGBRegressor(
-        n_estimators=200, max_depth=6, learning_rate=0.1,
-        subsample=0.8, colsample_bytree=0.8,
-        reg_alpha=1.0, reg_lambda=1.0,
-        random_state=42, n_jobs=-1,
-    ),
-    "LightGBM": lambda: lgb.LGBMRegressor(
-        n_estimators=200, max_depth=7, learning_rate=0.05,
-        num_leaves=31, subsample=0.8, colsample_bytree=0.8,
-        reg_alpha=1.0, reg_lambda=1.0,
-        random_state=42, n_jobs=-1, verbose=-1,
-    ),
-    "ExtraTrees": lambda: ExtraTreesRegressor(
-        n_estimators=200, max_depth=15, min_samples_leaf=5,
-        max_features="sqrt", random_state=42, n_jobs=-1,
-    ),
-}
+def get_models(config=None):
+    """Fresh model instances with config overrides applied."""
+    defaults = config.get("model_defaults", {}) if config else {}
+    
+    def make_rf():
+        params = {"random_state": 42, "n_jobs": -1}
+        params.update(defaults.get("RandomForest", {}))
+        return RandomForestRegressor(**params)
+    
+    def make_xgb():
+        params = {"reg_alpha": 1.0, "reg_lambda": 1.0, "random_state": 42, "n_jobs": -1}
+        params.update(defaults.get("XGBoost", {}))
+        return xgb.XGBRegressor(**params)
+    
+    def make_lgb():
+        params = {"reg_alpha": 1.0, "reg_lambda": 1.0, "random_state": 42, "n_jobs": -1, "verbose": -1}
+        params.update(defaults.get("LightGBM", {}))
+        return lgb.LGBMRegressor(**params)
+    
+    def make_et():
+        params = {"random_state": 42, "n_jobs": -1}
+        params.update(defaults.get("ExtraTrees", {}))
+        return ExtraTreesRegressor(**params)
+    
+    return {
+        "RandomForest": make_rf,
+        "XGBoost": make_xgb,
+        "LightGBM": make_lgb,
+        "ExtraTrees": make_et,
+    }
 
 PARAM_DISTRIBUTIONS = {
     "RandomForest": {
@@ -147,11 +153,6 @@ PARAM_DISTRIBUTIONS = {
 }
 
 
-def get_models():
-    """Fresh model instances (needed because sklearn mutates models on fit)."""
-    return {name: factory() for name, factory in MODELS.items()}
-
-
 def _make_feature_preprocessor(config):
     features = config["features"]
     high_cardinality = features.get("high_cardinality", [])
@@ -169,7 +170,6 @@ def _make_feature_preprocessor(config):
 
 def _make_cv_pipeline(model, config, smoothing=None):
     features = config["features"]
-    target_col = features["target"]
     high_cardinality = features.get("high_cardinality", [])
     if smoothing is None:
         smoothing = features.get("target_encoding_smoothing", 10)
@@ -187,7 +187,7 @@ def _make_cv_pipeline(model, config, smoothing=None):
 
 def compare_models(train_df, config, cv_folds=5):
     """Cross-validate all models and return results sorted by RMSE."""
-    models = get_models()
+    models = get_models(config)
     logger.info(f"Comparing {len(models)} models with {cv_folds}-fold CV...")
 
     results = {}
@@ -234,7 +234,7 @@ def get_top_models(results, top_n=3):
 def optimize_models(train_df, config, top_model_names, cv_folds=5, n_iter=20):
     """Run RandomizedSearchCV on the top models. Returns dict with models/scores/params."""
     logger.info("Starting hyperparameter optimization...")
-    fresh_models = get_models()
+    fresh_models = get_models(config)
 
     results = {"models": {}, "scores": {}, "params": {}}
     target_col = config["features"]["target"]
@@ -266,7 +266,7 @@ def optimize_models(train_df, config, top_model_names, cv_folds=5, n_iter=20):
             results["params"][name] = search.best_params_
 
             # Store just the tuned regressor (we'll train it later on preprocessed X_train).
-            tuned_model = get_models()[name]
+            tuned_model = get_models(config)[name]
             stripped_params = {k.replace("model__", ""): v for k, v in search.best_params_.items()}
             tuned_model.set_params(**stripped_params)
             results["models"][name] = tuned_model
@@ -398,7 +398,7 @@ def main():
     model_cfg = config["model"]
 
     # Setup MLflow
-    mlflow_client = setup_mlflow(tracking_uri=args.mlflow_uri)
+    setup_mlflow(tracking_uri=args.mlflow_uri)
 
     # 1. Load cleaned data
     processed_dir = data_cfg["processed_path"]
@@ -414,7 +414,6 @@ def main():
     # 2. Load cleaned data and compute the outer split used for CV + final training.
     logger.info("Loading cleaned data...")
     df = pd.read_csv(clean_path)
-    target_col = config["features"]["target"]
     test_size = model_cfg.get("test_size", 0.2)
     random_state = model_cfg.get("random_state", 42)
     train_df, test_df = train_test_split(df, test_size=test_size, random_state=random_state)
@@ -464,7 +463,7 @@ def main():
         model_to_train = optimized_models[best_name]
     else:
         best_name = min(top_models, key=lambda k: top_models[k]["mean_score"])
-        model_to_train = get_models()[best_name]
+        model_to_train = get_models(config)[best_name]
 
     best_model, metrics = train_best_model(X_train, X_test, y_train, y_test, best_name, model_to_train, config)
 
@@ -515,7 +514,7 @@ def main():
         r = cv_results[name]
         logger.info(f"  {name:15}: CV RMSE = {r['mean_score']:.4f} (±{r['std_score'] * 2:.4f})")
 
-    logger.info(f"\nTo start serving: uvicorn src.serve:app --host 0.0.0.0 --port 8000")
+    logger.info("\nTo start serving: uvicorn src.serve:app --host 0.0.0.0 --port 8000")
 
 
 if __name__ == "__main__":

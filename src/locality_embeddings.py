@@ -160,7 +160,7 @@ def main():
     dim = config.get("location", {}).get("embedding", {}).get("dimensions", 16)
     df = apply_locality_embeddings(df, embeddings_map, dim)
 
-    localities_json = generate_localities_json(df)
+    generate_localities_json(df)
 
     output_path = args.data
     df.to_csv(output_path, index=False)

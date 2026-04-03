@@ -9,10 +9,9 @@ import os
 import sys
 import argparse
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 import pandas as pd
-import numpy as np
 from src.core_utils import load_config, save_json
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
