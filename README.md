@@ -199,6 +199,8 @@ docker run -p 127.0.0.1:8000:8000 \
 docker run --rm mlops-price-prediction pytest tests/ -v
 ```
 
+Make sure tests pass locally before opening a PR.
+
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
