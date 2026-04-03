@@ -1,21 +1,26 @@
 # MLOps Price Prediction Pipeline
 
-A comprehensive machine learning pipeline for predicting rental prices using modern MLOps practices. This project demonstrates best practices for data processing, model training, evaluation, validation, and deployment in a production environment.
+[![ML Pipeline](https://github.com/Tanx-123/MLOps_Price_Prediction/actions/workflows/ml_pipeline.yml/badge.svg)](https://github.com/Tanx-123/MLOps_Price_Prediction/actions)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue?style=flat&logo=python)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-## 🚀 Features
+End-to-end ML pipeline for predicting rental prices. Think Zillow but for the Indian rental market - pull data, train models, validate quality, deploy to API. Runs on GitHub Actions with AWS for storage.
 
-- **Complete Data Pipeline**: Automated data fetching from S3, cleaning, and robust feature engineering with strict train/test splitting.
-- **Model Comparison**: Compare 4 state-of-the-art tree-based ML models using cross-validation.
-- **Hyperparameter Optimization**: Optional randomized search tuning for absolute best performance.
-- **Ensemble Methods**: Automated creation of Voting and Stacking ensemble models.
-- **Cloud Integration**: AWS S3 storage for tracking processed features and joblib model artifacts.
-- **Evaluation Gate**: Automated quality gate evaluating RMSE, MAE, and R² against thresholds prior to deployment.
-- **REST API**: FastAPI-based prediction service loading seamlessly from cloud artifacts.
-- **MLflow Integration**: Experiment tracking and model registry.
-- **Prometheus Metrics**: Built-in observability with `/metrics` endpoint.
-- **Data Validation**: Automated data quality checks with `src/validate_data.py`.
-- **Docker Support**: Production-ready containerization.
-- **Professional Structure**: Clean, modular, production-ready codebase.
+Started as a learning project but turned into something actually useful. The core idea: automate everything so you can focus on improving the model rather than babysitting pipelines.
+
+## 🚀 What's in the box
+
+- **Data pipeline** - Fetch from S3, clean, encode, split. Standard stuff but it works.
+- **4 models compared** - ExtraTrees, RandomForest, LightGBM, XGBoost. ExtraTrees usually wins on this dataset.
+- **Hyperparam tuning** - Optional `--optimize` flag uses RandomizedSearchCV. Takes longer but finds better params.
+- **Ensemble** - Voting and Stacking ensembles available if you want to experiment.
+- **S3 storage** - Processed data and trained models live in your S3 bucket.
+- **Quality gate** - Won't deploy if R² is below threshold. Fail safe.
+- **FastAPI server** - Loads model from S3 on startup, serves predictions.
+- **Metrics endpoint** - Prometheus-ready `/metrics` for monitoring.
+- **Data validation** - Checks for nulls, outliers, schema drift.
+- **Docker** - Build and push to ECR automatically. See CI/CD section.
+- **MLflow** - Optional tracking, start the UI separately if you want it.
 
 ## 📦 Installation
 
@@ -66,118 +71,160 @@ MLOps_Price_Prediction/
 
 ## 🎯 Quick Start
 
-Run the MLOps pipeline stages sequentially:
+Run everything locally first to verify it works:
 
-### 1. Data Processing Pipeline
 ```bash
-# Fetch, clean, encode, and build features
+# 1. Pull and process data
 python -m src.data_pipeline
-```
 
-### 2. Data Validation
-```bash
-# Validate cleaned data quality
+# 2. Check the cleaned data looks right
 python -m src.validate_data --stage clean
-```
 
-### 3. Model Training Pipeline
-```bash
-# Compare base models and save the best
+# 3. Train models
 python -m src.train_pipeline
 
-# Or run with robust randomized hyperparameter optimization
+# Want better params? This takes longer but finds them:
 python -m src.train_pipeline --optimize
 
-# With MLflow tracking (start MLflow UI separately)
-python -m src.train_pipeline --mlflow-uri http://localhost:5000
-```
-
-### 4. Model Evaluation Pipeline
-```bash
-# Evaluate the saved model against the strictly held-out test split
+# 4. Validate on held-out test
 python -m src.evaluate
-```
 
-### 5. Start Prediction API
-```bash
-# Start the FastAPI server locally
+# 5. Start the API
 uvicorn src.serve:app --host 0.0.0.0 --port 8000
 ```
 
-## 📊 Model Performance
+The first run will download data from S3, so make sure your `.env` is set up.
 
-The pipeline evaluates and compares 4 top estimators across 5-fold cross-validation:
+## 📊 How it performs
 
-1. **ExtraTreesRegressor** (Current best model)
-2. **RandomForestRegressor**
-3. **LightGBM**
-4. **XGBoost**
+ExtraTrees usually wins on this dataset - something about how it handles the categorical encoding we apply to City/Area combinations. With default params you should see:
 
-**Typical Optimal Performance Characteristics (ExtraTrees):**
-- Test RMSE: ~28,730
-- Test MAE: ~11,678
-- Test R²: ~0.67 (Passes configurable pipeline thresholds)
+- **Test R² ~0.65-0.70** - enough to be useful, not great but workable
+- **Test RMSE ~25k-30k** - depends on the data distribution that week
+- **Test MAE ~11k-12k** - off by about that much on average in rupees
 
-## 🌐 API Endpoints
+The CI/CD pipeline just ran this and passed threshold, so baseline is established.
 
-Once the `uvicorn` server is running on `localhost:8000`, test the endpoints:
+## 🌐 API
 
-### Health Check
+The prediction server is just a FastAPI wrapper around the trained model. Start it with:
+
 ```bash
-GET /health
-```
-Returns: `{"status": "healthy", "model_loaded": true, "s3_available": true, "version": "1.0.1"}`
-
-### Prometheus Metrics
-```bash
-GET /metrics
-```
-Returns Prometheus metrics for monitoring.
-
-### Make Predictions
-```bash
-POST /predict
-Content-Type: application/json
-
-{
-  "BHK": 2,
-  "Size": 800,
-  "Area_Type": "Super Area",
-  "City": "Bangalore",
-  "Furnishing_Status": "Furnished",
-  "Tenant_Preferred": "Family",
-  "Bathroom": 2,
-  "floor_num": 1,
-  "total_floors": 3,
-  "Area_Locality": "Whitefield"
-}
+uvicorn src.serve:app --host 0.0.0.0 --port 8000
 ```
 
-### Get Model Info (Metrics + Specs)
+It'll pull the latest model from S3 on startup.
+
+### Endpoints
+
+- `GET /health` - Returns `{"status": "healthy", ...}` includes model version and S3 connectivity
+- `GET /metrics` - Prometheus scrape endpoint
+- `POST /predict` - Main prediction endpoint
+- `GET /model/info` - Current model metrics and params
+
+Example request:
+
 ```bash
-GET /model/info
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"BHK": 2, "Size": 800, "City": "Bangalore", ...}'
 ```
 
-## 🔬 MLflow Integration
+### Metrics
 
-Track experiments and models with MLflow:
+The model logs prediction latency and request counts to `/metrics`. Hook this up to Prometheus + Grafana for production monitoring.
+
+## 🔬 MLflow
+
+Optional but useful for experimenting. Start the UI separately:
 
 ```bash
-# Start MLflow UI
 mlflow server --host 127.0.0.1 --port 5000
-
-# Run training with MLflow tracking
-python -m src.train_pipeline --mlflow-uri http://localhost:5000
 ```
+
+Then pass `--mlflow-uri http://localhost:5000` when training. Will log params, metrics, and the trained model.
 
 ## 🧪 Testing
 
-The codebase is thoroughly covered by `pytest`:
+Run the test suite with:
 
 ```bash
-# Run all data/model/API tests
-python -m pytest tests/ -v --tb=short
+pytest tests/ -v --tb=short
 ```
+
+Covers data processing, model training, and the API endpoints. Should pass locally before you push anything.
+
+## 🔄 CI/CD Pipeline
+
+The full ML pipeline runs automatically on GitHub Actions whenever you push to main. Here's how it works.
+
+### What runs when
+
+| Trigger | Runs tests | Trains | Deploys |
+|---------|-----------|--------|---------|
+| Push to main | Yes | Yes | Yes |
+| PR to main | Yes | No | No |
+| Manual dispatch | Yes | Yes | Yes |
+| Weekly schedule | Yes | Yes | Yes |
+
+We only run the full training → deploy pipeline on main branch or when you manually trigger it. PRs just run tests to catch issues early without wasting compute.
+
+### Setting up AWS credentials
+
+Go to your repo settings → Secrets and variables → Actions, and add these:
+
+```
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY  
+AWS_DEFAULT_REGION   # e.g., ap-south-1
+```
+
+Make sure your IAM user has S3 and ECR permissions - a user with PowerUserAccess or equivalent should work for local testing.
+
+### Triggering manually
+
+```bash
+gh workflow run ml_pipeline.yml
+```
+
+Or just hit "Run workflow" from the Actions tab on GitHub.
+
+## 🎯 Quality Gates
+
+The pipeline won't deploy a bad model - we check R² before building Docker.
+
+### The threshold
+
+Set in `configs/config.yaml`:
+
+```yaml
+model:
+  r2_threshold: 0.55
+```
+
+If test R² is below this, the pipeline stops and nothing gets deployed. Default is 0.55 which is lenient - you're getting 0.6-0.7 with ExtraTrees so there's buffer.
+
+### Making it stricter
+
+```yaml
+model:
+  r2_threshold: 0.65  # will fail sometimes until you tune more
+```
+
+Or looser if you're experimenting:
+
+```yaml
+model:
+  r2_threshold: 0.50  # almost always passes
+```
+
+### When things fail
+
+| Job | Why | Fix |
+|-----|-----|-----|
+| Train | MLflow path error | Rare on CI, check env vars if it happens |
+| Evaluate | R² too low | Need more features or better hyperparams |
+| Docker build | AWS creds expired | Refresh secrets in repo settings |
 
 ## 🚀 Deployment
 
@@ -213,4 +260,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Built with ❤️ for the ML community**
+If something breaks, open an issue. PRs welcome.
