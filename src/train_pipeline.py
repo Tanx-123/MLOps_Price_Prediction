@@ -63,23 +63,27 @@ def setup_mlflow(experiment_name: str = "rent-prediction", tracking_uri: str = N
 def log_model_run(model_name: str, model, metrics: dict, params: dict = None):
     """Log model metrics and parameters to MLflow."""
     if not MLFLOW_AVAILABLE:
+        logger.warning("MLflow not available, skipping model logging")
         return
     
-    artifact_path = os.environ.get("MLFLOW_ARTIFACT_ROOT", "./mlruns")
-    
-    with mlflow.start_run(run_name=model_name):
-        if params:
-            mlflow.log_params(params)
+    try:
+        artifact_path = os.environ.get("MLFLOW_ARTIFACT_ROOT", "./mlruns")
         
-        for key, value in metrics.items():
-            if isinstance(value, dict):
-                for subkey, subvalue in value.items():
-                    mlflow.log_metric(f"{key}_{subkey}", subvalue)
-            else:
-                mlflow.log_metric(key, value)
-        
-        mlflow.sklearn.log_model(model, model_name, artifact_path=artifact_path)
-        logger.info(f"Logged {model_name} to MLflow")
+        with mlflow.start_run(run_name=model_name):
+            if params:
+                mlflow.log_params(params)
+            
+            for key, value in metrics.items():
+                if isinstance(value, dict):
+                    for subkey, subvalue in value.items():
+                        mlflow.log_metric(f"{key}_{subkey}", subvalue)
+                else:
+                    mlflow.log_metric(key, value)
+            
+            mlflow.sklearn.log_model(model, model_name, artifact_path=artifact_path)
+            logger.info(f"Logged {model_name} to MLflow")
+    except Exception as e:
+        logger.warning(f"MLflow logging failed: {e}. Continuing without model logging.")
 
 
 # ── Model definitions ────────────────────────────────────────────────
