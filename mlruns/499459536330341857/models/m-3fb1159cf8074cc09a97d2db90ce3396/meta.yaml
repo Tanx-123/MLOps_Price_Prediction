@@ -1,0 +1,10 @@
+artifact_location: file:///C:/Users/ASUS/Desktop/MLOps_Price_Prediction/mlruns/499459536330341857/models/m-3fb1159cf8074cc09a97d2db90ce3396/artifacts
+creation_timestamp: 1775137117762
+experiment_id: '499459536330341857'
+last_updated_timestamp: 1775137125050
+model_id: m-3fb1159cf8074cc09a97d2db90ce3396
+model_type: null
+name: Stacking Ensemble
+source_run_id: d0be8f36c89a4d438e8b1a8e97259249
+status: 2
+status_message: null

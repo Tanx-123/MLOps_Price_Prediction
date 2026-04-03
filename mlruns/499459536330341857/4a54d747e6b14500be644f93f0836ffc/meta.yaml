@@ -1,0 +1,15 @@
+artifact_uri: file:///C:/Users/ASUS/Desktop/MLOps_Price_Prediction/mlruns/499459536330341857/4a54d747e6b14500be644f93f0836ffc/artifacts
+end_time: 1775114110052
+entry_point_name: ''
+experiment_id: '499459536330341857'
+lifecycle_stage: active
+run_id: 4a54d747e6b14500be644f93f0836ffc
+run_name: CatBoost
+run_uuid: 4a54d747e6b14500be644f93f0836ffc
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1775114092855
+status: 3
+tags: []
+user_id: ASUS

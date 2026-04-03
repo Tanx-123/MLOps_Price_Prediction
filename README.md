@@ -1,204 +1,109 @@
-# MLOps Price Prediction Pipeline
+# MLOps Price Prediction
 
-A comprehensive machine learning pipeline for predicting rental prices using modern MLOps practices. This project demonstrates best practices for data processing, model training, evaluation, validation, and deployment in a production environment.
+[![ML Pipeline](https://github.com/Tanx-123/MLOps_Price_Prediction/actions/workflows/ml_pipeline.yml/badge.svg)](https://github.com/Tanx-123/MLOps_Price_Prediction/actions)
 
-## 🚀 Features
+End-to-end ML pipeline for predicting rental prices in the Indian market. Automatically fetches data, trains several models, checks quality, and deploys a FastAPI inference server. We use GitHub Actions for CI/CD and AWS (S3/ECR) for storage and artifacts.
 
-- **Complete Data Pipeline**: Automated data fetching from S3, cleaning, and robust feature engineering with strict train/test splitting.
-- **Model Comparison**: Compare 4 state-of-the-art tree-based ML models using cross-validation.
-- **Hyperparameter Optimization**: Optional randomized search tuning for absolute best performance.
-- **Ensemble Methods**: Automated creation of Voting and Stacking ensemble models.
-- **Cloud Integration**: AWS S3 storage for tracking processed features and joblib model artifacts.
-- **Evaluation Gate**: Automated quality gate evaluating RMSE, MAE, and R² against thresholds prior to deployment.
-- **REST API**: FastAPI-based prediction service loading seamlessly from cloud artifacts.
-- **MLflow Integration**: Experiment tracking and model registry.
-- **Prometheus Metrics**: Built-in observability with `/metrics` endpoint.
-- **Data Validation**: Automated data quality checks with `src/validate_data.py`.
-- **Docker Support**: Production-ready containerization.
-- **Professional Structure**: Clean, modular, production-ready codebase.
+It started as a small script but grew into a full pipeline so I wouldn't have to manually tune and deploy models every time new data comes in.
 
-## 📦 Installation
+## Setup
 
-1. Clone the repository:
+1. **Clone & Virtualenv**
 ```bash
 git clone https://github.com/Tanx-123/MLOps_Price_Prediction.git
 cd MLOps_Price_Prediction
-```
-
-2. Create and activate virtual environment:
-```bash
 python -m venv env
 source env/bin/activate  # On Windows: env\Scripts\activate
 ```
 
-3. Install dependencies:
+2. **Install deps**
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Configure AWS and environment variables:
-Create a `.env` file from the example template and fill in your keys:
+3. **Environment setup**
+Copy `.env.example` to `.env` and add your AWS credentials:
 ```bash
 cp .env.example .env
-# Edit .env with your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+# Open .env and add your AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
 ```
 
-## 🏗️ Project Structure
+## Running Locally
 
-```
-MLOps_Price_Prediction/
-├── src/
-│   ├── core_utils.py          # Shared utilities (S3, metrics, config)
-│   ├── data_pipeline.py       # Data processing & feature engineering
-│   ├── train_pipeline.py      # Model training, tuning, comparison
-│   ├── evaluate.py           # Model quality gate evaluation
-│   ├── serve.py              # FastAPI prediction service
-│   ├── validate_data.py      # Data validation
-│   └── upload.py             # S3 upload utilities
-├── data/
-│   ├── raw/                  # Raw local data storage
-│   └── processed/            # Processed CSVs
-├── artifacts/                # Local cache for trained models/maps
-├── configs/                  # YAML pipelines configs
-├── tests/                    # Pytest unit tests
-└── logs/                     # Prediction logs
-```
+To test the pipeline locally, run these in order:
 
-## 🎯 Quick Start
-
-Run the MLOps pipeline stages sequentially:
-
-### 1. Data Processing Pipeline
 ```bash
-# Fetch, clean, encode, and build features
+# Fetch and clean the data
 python -m src.data_pipeline
-```
 
-### 2. Data Validation
-```bash
-# Validate cleaned data quality
+# Sanity check the cleaned data
 python -m src.validate_data --stage clean
-```
 
-### 3. Model Training Pipeline
-```bash
-# Compare base models and save the best
+# Train the models and pick the best one
 python -m src.train_pipeline
 
-# Or run with robust randomized hyperparameter optimization
-python -m src.train_pipeline --optimize
+# (Optional) If you want it to run a hyperparameter search, pass --optimize
+# python -m src.train_pipeline --optimize
 
-# With MLflow tracking (start MLflow UI separately)
-python -m src.train_pipeline --mlflow-uri http://localhost:5000
-```
-
-### 4. Model Evaluation Pipeline
-```bash
-# Evaluate the saved model against the strictly held-out test split
+# Evaluate the final model
 python -m src.evaluate
-```
 
-### 5. Start Prediction API
+# Spin up the API server (loads the current model)
+uvicorn src.serve:app --host 0.0.0.0 --port 8000
+```
+Note: The first run pulls data from S3, so make sure your `.env` is configured correctly.
+
+## API Reference
+The prediction server is a standard FastAPI app. It pulls the latest deployed model from S3 on startup.
+
 ```bash
-# Start the FastAPI server locally
 uvicorn src.serve:app --host 0.0.0.0 --port 8000
 ```
 
-## 📊 Model Performance
+- `GET /health`: Health check, returns model version/status.
+- `GET /metrics`: Prometheus metrics.
+- `POST /predict`: Main prediction endpoint. Expects JSON with property features.
+- `GET /model/info`: Current model parameters and evaluation metrics.
 
-The pipeline evaluates and compares 4 top estimators across 5-fold cross-validation:
-
-1. **ExtraTreesRegressor** (Current best model)
-2. **RandomForestRegressor**
-3. **LightGBM**
-4. **XGBoost**
-
-**Typical Optimal Performance Characteristics (ExtraTrees):**
-- Test RMSE: ~28,730
-- Test MAE: ~11,678
-- Test R²: ~0.67 (Passes configurable pipeline thresholds)
-
-## 🌐 API Endpoints
-
-Once the `uvicorn` server is running on `localhost:8000`, test the endpoints:
-
-### Health Check
+Test the endpoint:
 ```bash
-GET /health
-```
-Returns: `{"status": "healthy", "model_loaded": true, "s3_available": true, "version": "1.0.1"}`
-
-### Prometheus Metrics
-```bash
-GET /metrics
-```
-Returns Prometheus metrics for monitoring.
-
-### Make Predictions
-```bash
-POST /predict
-Content-Type: application/json
-
-{
-  "BHK": 2,
-  "Size": 800,
-  "Area_Type": "Super Area",
-  "City": "Bangalore",
-  "Furnishing_Status": "Furnished",
-  "Tenant_Preferred": "Family",
-  "Bathroom": 2,
-  "floor_num": 1,
-  "total_floors": 3,
-  "Area_Locality": "Whitefield"
-}
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"BHK": 2, "Size": 800, "City": "Bangalore", "Area": "Indiranagar", "Furnishing": "Semi-Furnished", "Tenant_Preferred": "Bachelors/Family", "Bathrooms": 2}'
 ```
 
-### Get Model Info (Metrics + Specs)
+## MLflow Tracking (Optional)
+
+If you're messing around with new models, you can spin up the MLflow UI:
 ```bash
-GET /model/info
-```
-
-## 🔬 MLflow Integration
-
-Track experiments and models with MLflow:
-
-```bash
-# Start MLflow UI
 mlflow server --host 127.0.0.1 --port 5000
-
-# Run training with MLflow tracking
-python -m src.train_pipeline --mlflow-uri http://localhost:5000
 ```
+Then pass `--mlflow-uri http://localhost:5000` when running `train_pipeline.py`.
 
-## 🧪 Testing
+## CI/CD and Quality Gates
 
-The codebase is thoroughly covered by `pytest`:
+The pipeline runs on GitHub Actions. It is built to automatically reject bad models.
+
+In `configs/config.yaml`, there's an `r2_threshold` (default `0.55`). If the best model's R² on the test set is below this, the pipeline fails and won't deploy. Usually, ExtraTrees gets around 0.65-0.70 here.
+
+Workflow triggers:
+- **Push to main / Manual dispatch / Weekly cron:** Runs the full pipeline (train -> eval -> docker build -> deploy).
+- **PRs:** Just runs `pytest tests/` to verify nothing is broken.
+
+## Deployment
+
+The CI builds a Docker image and pushes it to ECR. If you need to build and run it manually:
 
 ```bash
-# Run all data/model/API tests
-python -m pytest tests/ -v --tb=short
-```
-
-## 🚀 Deployment
-
-### Docker Deployment
-```bash
-# Build Docker image
 docker build -t mlops-price-prediction .
-
-# Run container (localhost only for security)
-docker run -p 127.0.0.1:8000:8000 \
-  -e AWS_ACCESS_KEY_ID=your_key \
-  -e AWS_SECRET_ACCESS_KEY=your_secret \
-  -e AWS_DEFAULT_REGION=ap-south-1 \
-  mlops-price-prediction
+docker run -p 8000:8000 --env-file .env mlops-price-prediction
 ```
 
-### Run Tests in Docker
+## Running Tests
+
 ```bash
-docker run --rm mlops-price-prediction pytest tests/ -v
+pytest tests/ -v
 ```
-
 Make sure tests pass locally before opening a PR.
 
 ## 📝 License
@@ -214,5 +119,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 5. Open a Pull Request
 
 ---
-
-**Built with ❤️ for the ML community**
+Hit me up with an issue if something is broken. PRs are always welcome.

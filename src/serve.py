@@ -91,6 +91,7 @@ metrics = None
 config = None
 target_transform = None
 s3_client = None
+localities_data = None
 
 
 # ── Logging setup ────────────────────────────────────────────────────
@@ -150,12 +151,27 @@ def _load_json(artifacts_dir, *filenames):
 
 
 async def _startup():
-    global model, preprocessor, target_encoding_maps, metrics, config, target_transform, s3_client
+    global model, preprocessor, target_encoding_maps, metrics, config, target_transform, s3_client, localities_data
 
     config = load_config()
     s3_cfg = config["s3"]
     artifacts_dir = config["data"]["artifacts_path"]
+    data_dir = config["data"]["processed_path"]
     bucket, prefix = s3_cfg["bucket"], s3_cfg["artifacts_prefix"]
+
+    # Load localities data for frontend dropdown
+    localities_path = os.path.join(data_dir, "localities_by_city.json")
+    localities_s3_key = s3_cfg.get("localities_key", "processed_data/localities_by_city.json")
+    if not os.path.exists(localities_path):
+        if ensure_local_file(localities_path, bucket, localities_s3_key):
+            logger.info("Downloaded localities file from S3")
+    if os.path.exists(localities_path):
+        with open(localities_path, "r") as f:
+            localities_data = json.load(f)
+        logger.info(f"Loaded localities for {len(localities_data)} cities")
+    else:
+        logger.warning(f"Localities file not found: {localities_path}")
+        localities_data = {}
 
     # Check S3 connectivity
     s3_client = _check_s3_health()
@@ -265,6 +281,14 @@ async def model_info():
         features_count=getattr(model, "n_features_in_", 0),
         target_transform=target_transform,
     )
+
+
+@app.get("/localities")
+async def get_localities():
+    """Return cities and their localities for frontend dropdown."""
+    if not localities_data:
+        raise HTTPException(404, "Localities data not available")
+    return localities_data
 
 
 @app.post("/predict", response_model=RentOutput)

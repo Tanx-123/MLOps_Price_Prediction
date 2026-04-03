@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/ASUS/Desktop/MLOps_Price_Prediction/mlruns/499459536330341857/d0be8f36c89a4d438e8b1a8e97259249/artifacts
+end_time: 1775137125073
+entry_point_name: ''
+experiment_id: '499459536330341857'
+lifecycle_stage: active
+run_id: d0be8f36c89a4d438e8b1a8e97259249
+run_name: Stacking Ensemble
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1775137117619
+status: 3
+tags: []
+user_id: ASUS
