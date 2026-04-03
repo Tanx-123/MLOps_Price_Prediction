@@ -88,33 +88,27 @@ def log_model_run(model_name: str, model, metrics: dict, params: dict = None):
 
 def get_models(config=None):
     """Fresh model instances with config overrides applied."""
-    defaults = config.get("model_defaults", {}) if config else {}
+    defaults = {}
+    if config and "model_defaults" in config:
+        defaults = config["model_defaults"]
     
-    def make_rf():
-        params = {"random_state": 42, "n_jobs": -1}
-        params.update(defaults.get("RandomForest", {}))
-        return RandomForestRegressor(**params)
+    rf_params = {"random_state": 42, "n_jobs": -1}
+    rf_params.update(defaults.get("RandomForest", {}))
     
-    def make_xgb():
-        params = {"reg_alpha": 1.0, "reg_lambda": 1.0, "random_state": 42, "n_jobs": -1}
-        params.update(defaults.get("XGBoost", {}))
-        return xgb.XGBRegressor(**params)
+    xgb_params = {"reg_alpha": 1.0, "reg_lambda": 1.0, "random_state": 42, "n_jobs": -1}
+    xgb_params.update(defaults.get("XGBoost", {}))
     
-    def make_lgb():
-        params = {"reg_alpha": 1.0, "reg_lambda": 1.0, "random_state": 42, "n_jobs": -1, "verbose": -1}
-        params.update(defaults.get("LightGBM", {}))
-        return lgb.LGBMRegressor(**params)
+    lgb_params = {"reg_alpha": 1.0, "reg_lambda": 1.0, "random_state": 42, "n_jobs": -1, "verbose": -1}
+    lgb_params.update(defaults.get("LightGBM", {}))
     
-    def make_et():
-        params = {"random_state": 42, "n_jobs": -1}
-        params.update(defaults.get("ExtraTrees", {}))
-        return ExtraTreesRegressor(**params)
+    et_params = {"random_state": 42, "n_jobs": -1}
+    et_params.update(defaults.get("ExtraTrees", {}))
     
     return {
-        "RandomForest": make_rf,
-        "XGBoost": make_xgb,
-        "LightGBM": make_lgb,
-        "ExtraTrees": make_et,
+        "RandomForest": RandomForestRegressor(**rf_params),
+        "XGBoost": xgb.XGBRegressor(**xgb_params),
+        "LightGBM": lgb.LGBMRegressor(**lgb_params),
+        "ExtraTrees": ExtraTreesRegressor(**et_params),
     }
 
 PARAM_DISTRIBUTIONS = {
