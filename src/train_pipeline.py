@@ -65,6 +65,8 @@ def log_model_run(model_name: str, model, metrics: dict, params: dict = None):
     if not MLFLOW_AVAILABLE:
         return
     
+    artifact_path = os.environ.get("MLFLOW_ARTIFACT_ROOT", "./mlruns")
+    
     with mlflow.start_run(run_name=model_name):
         if params:
             mlflow.log_params(params)
@@ -76,7 +78,7 @@ def log_model_run(model_name: str, model, metrics: dict, params: dict = None):
             else:
                 mlflow.log_metric(key, value)
         
-        mlflow.sklearn.log_model(model, model_name)
+        mlflow.sklearn.log_model(model, model_name, artifact_path=artifact_path)
         logger.info(f"Logged {model_name} to MLflow")
 
 
