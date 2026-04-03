@@ -1,7 +1,7 @@
 # MLOps Price Prediction Pipeline
 
 [![ML Pipeline](https://github.com/Tanx-123/MLOps_Price_Prediction/actions/workflows/ml_pipeline.yml/badge.svg)](https://github.com/Tanx-123/MLOps_Price_Prediction/actions)
-[![Python](https://img.shields.io/badge/Python-3.11+-blue?style=flat&logo=python)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.13+-blue?style=flat&logo=python)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 End-to-end ML pipeline for predicting rental prices. Think Zillow but for the Indian rental market - pull data, train models, validate quality, deploy to API. Runs on GitHub Actions with AWS for storage.
