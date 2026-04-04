@@ -19,6 +19,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from src.features import engineer_features
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -276,12 +277,20 @@ def build_features(df, config):
     smoothing = features.get("target_encoding_smoothing", 10)
     target_transform = features.get("target_transform", None)
 
-    # Engineer features if not already present
-    if "size_per_bhk" not in df.columns:
-        df = df.copy()
-        df["size_per_bhk"] = df["Size"] / df["BHK"].clip(lower=1)
-        df["bath_to_bhk_ratio"] = df["Bathroom"] / df["BHK"].clip(lower=1)
-        df["floor_ratio"] = df["floor_num"] / df["total_floors"].clip(lower=1)
+    df = engineer_features(df)
+
+    loc_config = config.get("location", {})
+    emb_config = loc_config.get("embedding", {})
+
+    if emb_config.get("enabled", False):
+        from src.locality_embeddings import add_city_coordinates, apply_locality_embeddings
+        df = add_city_coordinates(df, config)
+        embeddings_map, pca = None, None
+        emb_path = emb_config.get("cache_path", "artifacts/locality_embeddings.joblib")
+        if os.path.exists(emb_path):
+            cached = joblib.load(emb_path)
+            dim = emb_config.get("dimensions", 16)
+            df = apply_locality_embeddings(df, cached["embeddings_map"], dim)
 
     train_df, test_df = train_test_split(df, test_size=test_size, random_state=random_state)
     logger.info(f"Train: {train_df.shape}, Test: {test_df.shape}")
@@ -293,8 +302,9 @@ def build_features(df, config):
         encoding_maps[col] = enc_artifact
         test_df[col] = apply_target_encoding(test_df, col, enc_artifact)
 
-    num_cols = features["numerical"] + features.get("high_cardinality", [])
-    cat_cols = features["categorical"]
+    # Build feature lists dynamically based on what columns actually exist
+    num_cols = [c for c in features["numerical"] + features.get("high_cardinality", []) if c in train_df.columns]
+    cat_cols = [c for c in features["categorical"] if c in train_df.columns]
 
     preprocessor = ColumnTransformer(
         transformers=[

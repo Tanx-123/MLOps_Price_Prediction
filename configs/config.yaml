@@ -22,6 +22,24 @@ features:
     - size_per_bhk
     - bath_to_bhk_ratio
     - floor_ratio
+    - city_lat
+    - city_lon
+    - locality_emb_0
+    - locality_emb_1
+    - locality_emb_2
+    - locality_emb_3
+    - locality_emb_4
+    - locality_emb_5
+    - locality_emb_6
+    - locality_emb_7
+    - locality_emb_8
+    - locality_emb_9
+    - locality_emb_10
+    - locality_emb_11
+    - locality_emb_12
+    - locality_emb_13
+    - locality_emb_14
+    - locality_emb_15
   categorical:
     - Area Type
     - City
@@ -71,6 +89,20 @@ model_defaults:
     max_depth: 15
     min_samples_leaf: 5
     max_features: "sqrt"
+
+location:
+  embedding:
+    model_name: "sentence-transformers/all-MiniLM-L6-v2"
+    dimensions: 16
+    cache_path: "artifacts/locality_embeddings.joblib"
+    enabled: false
+  cities:
+    mumbai: [19.0760, 72.8777]
+    bangalore: [12.9716, 77.5946]
+    chennai: [13.0827, 80.2707]
+    hyderabad: [17.3850, 78.4867]
+    delhi: [28.7041, 77.1025]
+    kolkata: [22.5726, 88.3639]
 
 server:
   host: "0.0.0.0"

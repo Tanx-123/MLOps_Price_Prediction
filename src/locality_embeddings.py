@@ -62,11 +62,32 @@ def reduce_dimensions(embeddings, n_components, random_state=42):
     return reduced, pca
 
 
-def add_city_coordinates(df):
+def add_city_coordinates(df, config=None):
     """Add city_lat and city_lon based on City column."""
+    if config is None:
+        cities = {
+            "mumbai": (19.0760, 72.8777),
+            "bangalore": (12.9716, 77.5946),
+            "chennai": (13.0827, 80.2707),
+            "hyderabad": (17.3850, 78.4867),
+            "delhi": (28.7041, 77.1025),
+            "kolkata": (22.5726, 88.3639),
+        }
+    else:
+        cities = config.get("location", {}).get("cities", {})
+        if not cities:
+            cities = {
+                "mumbai": (19.0760, 72.8777),
+                "bangalore": (12.9716, 77.5946),
+                "chennai": (13.0827, 80.2707),
+                "hyderabad": (17.3850, 78.4867),
+                "delhi": (28.7041, 77.1025),
+                "kolkata": (22.5726, 88.3639),
+            }
+    
     df = df.copy()
-    df["city_lat"] = df["City"].str.lower().map(lambda x: CITY_COORDINATES.get(x, (0, 0))[0])
-    df["city_lon"] = df["City"].str.lower().map(lambda x: CITY_COORDINATES.get(x, (0, 0))[1])
+    df["city_lat"] = df["City"].str.lower().map(lambda x: cities.get(x, (0, 0))[0])
+    df["city_lon"] = df["City"].str.lower().map(lambda x: cities.get(x, (0, 0))[1])
     logger.info("Added city_lat and city_lon features")
     return df
 
@@ -85,6 +106,8 @@ def generate_locality_embeddings(df, config):
     model_name = embedding_config.get("model_name", "sentence-transformers/all-MiniLM-L6-v2")
     dimensions = embedding_config.get("dimensions", 16)
 
+    df = df.copy()
+    df["City_Locality"] = df["Area Locality"] + ", " + df["City"]
     unique_city_localities = df["City_Locality"].unique().tolist()
     embeddings, model = generate_embeddings(unique_city_localities, model_name, dimensions)
 
@@ -110,6 +133,9 @@ def apply_locality_embeddings(df, embeddings_map, n_components):
     dim = n_components
     embedding_cols = [f"locality_emb_{i}" for i in range(dim)]
 
+    df = df.copy()
+    df["City_Locality"] = df["Area Locality"] + ", " + df["City"]
+
     embedding_matrix = np.zeros((len(df), dim))
     for i, key in enumerate(df["City_Locality"]):
         if key in embeddings_map:
@@ -117,6 +143,8 @@ def apply_locality_embeddings(df, embeddings_map, n_components):
 
     for j, col in enumerate(embedding_cols):
         df[col] = embedding_matrix[:, j]
+
+    df = df.drop(columns=["City_Locality"])
 
     logger.info(f"Added {dim} locality embedding features")
     return df

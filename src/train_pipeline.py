@@ -147,11 +147,16 @@ PARAM_DISTRIBUTIONS = {
 }
 
 
-def _make_feature_preprocessor(config):
+def _make_feature_preprocessor(config, df=None):
     features = config["features"]
     high_cardinality = features.get("high_cardinality", [])
-    num_cols = features["numerical"] + high_cardinality
-    cat_cols = features["categorical"]
+    
+    if df is not None:
+        num_cols = [c for c in features["numerical"] + high_cardinality if c in df.columns]
+        cat_cols = [c for c in features["categorical"] if c in df.columns]
+    else:
+        num_cols = features["numerical"] + high_cardinality
+        cat_cols = features["categorical"]
 
     return ColumnTransformer(
         transformers=[
@@ -162,7 +167,7 @@ def _make_feature_preprocessor(config):
     )
 
 
-def _make_cv_pipeline(model, config, smoothing=None):
+def _make_cv_pipeline(model, config, smoothing=None, train_df=None):
     features = config["features"]
     high_cardinality = features.get("high_cardinality", [])
     if smoothing is None:
@@ -171,7 +176,7 @@ def _make_cv_pipeline(model, config, smoothing=None):
     return Pipeline(
         steps=[
             ("target_encode", TargetEncodingTransformer(columns=high_cardinality, smoothing=smoothing)),
-            ("preprocessor", _make_feature_preprocessor(config)),
+            ("preprocessor", _make_feature_preprocessor(config, train_df)),
             ("model", model),
         ]
     )
@@ -192,7 +197,7 @@ def compare_models(train_df, config, cv_folds=5):
         y_train = np.log1p(y_train)
     for name, model in models.items():
         try:
-            pipe = _make_cv_pipeline(model, config)
+            pipe = _make_cv_pipeline(model, config, train_df=train_df)
             scores = cross_val_score(
                 pipe,
                 train_df,
@@ -241,7 +246,7 @@ def optimize_models(train_df, config, top_model_names, cv_folds=5, n_iter=20):
         logger.info(f"  Tuning {name} ({n_iter} iterations)...")
         try:
             base_model = fresh_models[name]
-            pipe = _make_cv_pipeline(base_model, config)
+            pipe = _make_cv_pipeline(base_model, config, train_df=train_df)
 
             # Our pipeline has the regressor at `model`, so param keys must be `model__<param>`.
             param_dist = {f"model__{k}": v for k, v in PARAM_DISTRIBUTIONS[name].items()}
@@ -305,7 +310,7 @@ def evaluate_ensemble(ensemble, train_df, test_df, config, name, cv_folds=5):
         y_train = np.log1p(y_train)
         y_test = np.log1p(y_test)
 
-    pipe = _make_cv_pipeline(ensemble, config)
+    pipe = _make_cv_pipeline(ensemble, config, train_df=train_df)
 
     cv_scores = cross_val_score(
         pipe,

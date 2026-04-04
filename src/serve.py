@@ -93,6 +93,7 @@ config = None
 target_transform = None
 s3_client = None
 localities_data = None
+locality_embeddings = None
 
 
 # ── Logging setup ────────────────────────────────────────────────────
@@ -152,7 +153,7 @@ def _load_json(artifacts_dir, *filenames):
 
 
 async def _startup():
-    global model, preprocessor, target_encoding_maps, metrics, config, target_transform, s3_client, localities_data
+    global model, preprocessor, target_encoding_maps, metrics, config, target_transform, s3_client, localities_data, locality_embeddings
 
     config = load_config()
     s3_cfg = config["s3"]
@@ -173,6 +174,24 @@ async def _startup():
     else:
         logger.warning(f"Localities file not found: {localities_path}")
         localities_data = {}
+
+    # Load locality embeddings (only if enabled in config)
+    emb_config = config.get("location", {}).get("embedding", {})
+    locality_embeddings = None
+    if emb_config.get("enabled", False):
+        emb_path = os.path.join(artifacts_dir, "locality_embeddings.joblib")
+        if os.path.exists(emb_path):
+            locality_embeddings = joblib.load(emb_path)
+            logger.info(f"Loaded locality embeddings with {len(locality_embeddings['embeddings_map'])} localities")
+        else:
+            emb_s3_key = emb_config.get("cache_path", "artifacts/locality_embeddings.joblib")
+            if ensure_local_file(emb_path, bucket, emb_s3_key):
+                locality_embeddings = joblib.load(emb_path)
+                logger.info(f"Loaded locality embeddings with {len(locality_embeddings['embeddings_map'])} localities")
+            else:
+                logger.warning("Locality embeddings not found")
+    else:
+        logger.info("Locality embeddings disabled in config")
 
     # Check S3 connectivity
     s3_client = _check_s3_health()
@@ -322,6 +341,29 @@ async def predict(input_data: RentInput):
 
         # Engineer features (same logic as training pipeline)
         df = engineer_features(df)
+
+        # Add city coordinates
+        cities = config.get("location", {}).get("cities", {
+            "mumbai": (19.0760, 72.8777),
+            "bangalore": (12.9716, 77.5946),
+            "chennai": (13.0827, 80.2707),
+            "hyderabad": (17.3850, 78.4867),
+            "delhi": (28.7041, 77.1025),
+            "kolkata": (22.5726, 88.3639),
+        })
+        city_key = input_data.City.lower() if input_data.City else "bangalore"
+        coords = cities.get(city_key, (0.0, 0.0))
+        df["city_lat"] = float(coords[0])
+        df["city_lon"] = float(coords[1])
+
+        # Apply locality embeddings
+        if locality_embeddings:
+            emb_map = locality_embeddings["embeddings_map"]
+            dim = locality_embeddings.get("dimensions", 16)
+            city_loc = input_data.Area_Locality.lower() + ", " + input_data.City.lower()
+            emb = emb_map.get(city_loc, np.zeros(dim))
+            for i in range(dim):
+                df[f"locality_emb_{i}"] = emb[i]
 
         # Apply target encoding (same logic as training)
         if target_encoding_maps:

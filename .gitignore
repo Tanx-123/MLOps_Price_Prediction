@@ -216,3 +216,4 @@ __marimo__/
 /artifacts/
 /logs/
 mlflow.db
+mlruns/

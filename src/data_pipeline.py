@@ -18,7 +18,7 @@ from src.core_utils import (
     build_features, save_model,
 )
 from src.features import engineer_features
-from src.locality_embeddings import generate_localities_json
+from src.locality_embeddings import generate_localities_json, add_city_coordinates, generate_locality_embeddings, apply_locality_embeddings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -113,6 +113,11 @@ def validate_data(df, config):
     target = features["target"]
 
     expected = features["numerical"] + features["categorical"] + features["high_cardinality"] + [target]
+    
+    emb_config = config.get("location", {}).get("embedding", {})
+    if not emb_config.get("enabled", False):
+        expected = [c for c in expected if not c.startswith("locality_emb_") and c not in ["city_lat", "city_lon"]]
+    
     missing = [c for c in expected if c not in df.columns]
     if missing:
         raise ValueError(f"Missing expected columns: {missing}")
@@ -157,6 +162,21 @@ def main():
     # 2c. Engineer features
     logger.info("Engineering features...")
     df_clean = engineer_features(df_clean)
+
+    # 2d. Add city coordinates
+    logger.info("Adding city coordinates...")
+    df_clean = add_city_coordinates(df_clean)
+
+    # 2e. Generate and apply locality embeddings
+    loc_config = config.get("location", {})
+    emb_config = loc_config.get("embedding", {})
+    if emb_config.get("enabled", False):
+        logger.info("Generating locality embeddings...")
+        embeddings_map, pca = generate_locality_embeddings(df_clean, config)
+        dim = emb_config.get("dimensions", 16)
+        df_clean = apply_locality_embeddings(df_clean, embeddings_map, dim)
+    else:
+        logger.info("Locality embeddings disabled in config")
 
     # 3. Validate
     validate_data(df_clean, config)

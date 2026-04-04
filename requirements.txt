@@ -14,3 +14,4 @@ lightgbm>=4.0
 scipy>=1.11
 prometheus-client>=0.19
 mlflow>=2.0
+sentence-transformers>=2.0
