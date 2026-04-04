@@ -280,16 +280,9 @@ def build_features(df, config):
     df = engineer_features(df)
 
     loc_config = config.get("location", {})
-    emb_config = loc_config.get("embedding", {})
-
-    if emb_config.get("enabled", False):
-        from src.locality_embeddings import add_city_coordinates, apply_locality_embeddings
+    if loc_config and "cities" in loc_config:
+        from src.location_utils import add_city_coordinates
         df = add_city_coordinates(df, config)
-        emb_path = emb_config.get("cache_path", "artifacts/locality_embeddings.joblib")
-        if os.path.exists(emb_path):
-            cached = joblib.load(emb_path)
-            dim = emb_config.get("dimensions", 16)
-            df = apply_locality_embeddings(df, cached["embeddings_map"], dim)
 
     train_df, test_df = train_test_split(df, test_size=test_size, random_state=random_state)
     logger.info(f"Train: {train_df.shape}, Test: {test_df.shape}")

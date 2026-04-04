@@ -24,22 +24,6 @@ features:
     - floor_ratio
     - city_lat
     - city_lon
-    - locality_emb_0
-    - locality_emb_1
-    - locality_emb_2
-    - locality_emb_3
-    - locality_emb_4
-    - locality_emb_5
-    - locality_emb_6
-    - locality_emb_7
-    - locality_emb_8
-    - locality_emb_9
-    - locality_emb_10
-    - locality_emb_11
-    - locality_emb_12
-    - locality_emb_13
-    - locality_emb_14
-    - locality_emb_15
   categorical:
     - Area Type
     - City
@@ -91,11 +75,6 @@ model_defaults:
     max_features: "sqrt"
 
 location:
-  embedding:
-    model_name: "sentence-transformers/all-MiniLM-L6-v2"
-    dimensions: 16
-    cache_path: "artifacts/locality_embeddings.joblib"
-    enabled: false
   cities:
     mumbai: [19.0760, 72.8777]
     bangalore: [12.9716, 77.5946]

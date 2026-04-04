@@ -51,6 +51,9 @@ def sample_cleaned_df():
     df["size_per_bhk"] = df["Size"] / df["BHK"].clip(lower=1)
     df["bath_to_bhk_ratio"] = df["Bathroom"] / df["BHK"].clip(lower=1)
     df["floor_ratio"] = df["floor_num"] / df["total_floors"].clip(lower=1)
+    # Add city coordinates (added in data pipeline before validate_data)
+    df["city_lat"] = [12.9716, 12.9716, 13.0827, 12.9716]
+    df["city_lon"] = [77.5946, 77.5946, 80.2707, 77.5946]
     return df
 
 
