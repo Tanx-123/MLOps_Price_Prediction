@@ -285,7 +285,6 @@ def build_features(df, config):
     if emb_config.get("enabled", False):
         from src.locality_embeddings import add_city_coordinates, apply_locality_embeddings
         df = add_city_coordinates(df, config)
-        embeddings_map, pca = None, None
         emb_path = emb_config.get("cache_path", "artifacts/locality_embeddings.joblib")
         if os.path.exists(emb_path):
             cached = joblib.load(emb_path)
